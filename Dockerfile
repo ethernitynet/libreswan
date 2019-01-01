@@ -9,26 +9,20 @@ ENV LIBRESWAN_REPO="${IMG_LIBRESWAN_REPO}"
 ENV LIBRESWAN_VERSION=$IMG_LIBRESWAN_VERSION
 ENV LIBRESWAN_DIR=${SRC_DIR}/libreswan
 
-COPY enet/app-entrypoint.sh ${SRC_DIR}/
-COPY enet/utils/*.sh ${SRC_DIR}/utils/
-COPY enet/env/*.sh ${SRC_DIR}/env/
+COPY enet/app/ ${SRC_DIR}/
+ENV BASH_ENV=${SRC_DIR}/docker-entrypoint.sh
+SHELL ["/bin/bash", "-c"]
 
-RUN . ${SRC_DIR}/app-entrypoint.sh; \
-	exec_apt_update
-
-RUN . ${SRC_DIR}/app-entrypoint.sh; \
-	exec_apt_install "$(libreswan_prerequisites)"
+RUN exec_apt_update
+RUN exec_apt_install "$(libreswan_prerequisites)"
 
 WORKDIR $SRC_DIR
-RUN . ${SRC_DIR}/app-entrypoint.sh; \
-	libreswan_clone
+RUN libreswan_clone
 
 WORKDIR $LIBRESWAN_DIR
 	
-COPY enet/runtime/*.sh ${SRC_DIR}/runtime/
+COPY enet/runtime/ ${SRC_DIR}/runtime/
+ENV BASH_ENV=${SRC_DIR}/app-entrypoint.sh
 
-RUN . ${SRC_DIR}/app-entrypoint.sh; \
-	libreswan_pull
-
-RUN . ${SRC_DIR}/app-entrypoint.sh; \
-	libreswan_build
+RUN libreswan_pull
+RUN libreswan_build
