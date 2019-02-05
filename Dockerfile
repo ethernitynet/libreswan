@@ -26,3 +26,5 @@ ENV BASH_ENV=${SRC_DIR}/app-entrypoint.sh
 
 RUN libreswan_pull
 RUN libreswan_build
+
+#CMD ["/bin/bash", "-c", "ipsec start"]

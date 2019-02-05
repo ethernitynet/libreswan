@@ -9,7 +9,7 @@ libreswan_prerequisites() {
 		libcurl3-nss-dev flex bison gcc make libldns-dev 
 		libunbound-dev libnss3-tools libevent-dev xmlto 
 		libsystemd-dev iproute2 iptables 
-		git'
+		ssh git'
 }
 
 libreswan_clone() {
