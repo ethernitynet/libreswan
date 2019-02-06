@@ -17,11 +17,11 @@ VPN_SHARED_DIR="${TGT_SRC_DIR}/enet-vpn-gw/shared/${DOCKER_INST}"
 
 case ${IMG_DOMAIN} in
 	"hub")
-	IMG_TAG=ethernitynet/enet-libreswan:$LIBRESWAN_VERSION
+	IMG_TAG=ethernity/libreswan:$LIBRESWAN_VERSION
 	docker pull $IMG_TAG
 	;;
 	*)
-	IMG_TAG=local/enet-libreswan:$LIBRESWAN_VERSION
+	IMG_TAG=local/libreswan:$LIBRESWAN_VERSION
 	LIBRESWAN_REPO="https://github.com/ethernitynet/libreswan.git"
 	docker build \
 		-t $IMG_TAG \
