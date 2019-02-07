@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -x
+
 ACENIC_ID=${1:-0}
 ACENIC_PORT=${2:-104}
 IMG_DOMAIN=${3:-local}
@@ -12,8 +14,9 @@ docker rmi $(docker images | grep "none" | awk '/ / { print $3 }')
 docker rm $(docker ps -qa --no-trunc --filter "status=exited")
 
 DOCKER_INST="enet${ACENIC_ID}_libreswan${ACENIC_PORT}"
-TGT_SRC_DIR=/root/ETHERNITY/GITHUB
-VPN_SHARED_DIR="${TGT_SRC_DIR}/enet-vpn-gw/shared/${DOCKER_INST}"
+HOST_VPN_DIR=$(pwd)/../enet-vpn-gw
+VPN_SHARED_DIR="/shared/enet${ACENIC_ID}-vpn/$DOCKER_INST"
+HOST_SHARED_DIR=${HOST_VPN_DIR}${VPN_SHARED_DIR}
 
 case ${IMG_DOMAIN} in
 	"hub")
@@ -39,10 +42,13 @@ docker run \
 	--rm \
 	--ipc=host \
 	--privileged \
-	-v ${VPN_SHARED_DIR}/ipsec.conf:/etc/ipsec.conf \
-	-v ${VPN_SHARED_DIR}/ipsec.secrets:/etc/ipsec.secrets \
 	--env ACENIC_ID=$ACENIC_ID \
 	--env DOCKER_INST=$DOCKER_INST \
 	--hostname=$DOCKER_INST \
 	--name=$DOCKER_INST \
+	-v ${HOST_SHARED_DIR}/ipsec.conf:/etc/ipsec.conf \
+	-v ${HOST_SHARED_DIR}/ipsec.secrets:/etc/ipsec.secrets \
+	-v ${HOST_SHARED_DIR}/conns:$VPN_SHARED_DIR/conns \
 	$IMG_TAG
+
+set +x
