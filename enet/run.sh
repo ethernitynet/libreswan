@@ -4,8 +4,9 @@ set -x
 
 ACENIC_ID=${1:-0}
 ACENIC_PORT=${2:-104}
-IMG_DOMAIN=${3:-local}
-LIBRESWAN_VERSION=${4:-v3.27}
+HOST_VPN_DIR=${3:-/tmp/enet-vpn-gw}
+IMG_DOMAIN=${4:-local}
+LIBRESWAN_VERSION=${5:-v3.27}
 
 docker volume rm $(docker volume ls -qf dangling=true)
 #docker network rm $(docker network ls | grep "bridge" | awk '/ / { print $1 }')
@@ -14,10 +15,10 @@ docker rmi $(docker images | grep "none" | awk '/ / { print $3 }')
 docker rm $(docker ps -qa --no-trunc --filter "status=exited")
 
 DOCKER_INST="enet${ACENIC_ID}_libreswan${ACENIC_PORT}"
-HOST_VPN_DIR=$(pwd)/../enet-vpn-gw
 VPN_SHARED_DIR="/shared/enet${ACENIC_ID}-vpn"
 LIBRESWAN_SHARED_DIR="${VPN_SHARED_DIR}/$DOCKER_INST"
 HOST_SHARED_DIR=${HOST_VPN_DIR}${LIBRESWAN_SHARED_DIR}
+mkdir -p ${HOST_SHARED_DIR}/conns
 
 case ${IMG_DOMAIN} in
 	"hub")
