@@ -15,8 +15,9 @@ docker rm $(docker ps -qa --no-trunc --filter "status=exited")
 
 DOCKER_INST="enet${ACENIC_ID}_libreswan${ACENIC_PORT}"
 HOST_VPN_DIR=$(pwd)/../enet-vpn-gw
-VPN_SHARED_DIR="/shared/enet${ACENIC_ID}-vpn/$DOCKER_INST"
-HOST_SHARED_DIR=${HOST_VPN_DIR}${VPN_SHARED_DIR}
+VPN_SHARED_DIR="/shared/enet${ACENIC_ID}-vpn"
+LIBRESWAN_SHARED_DIR="${VPN_SHARED_DIR}/$DOCKER_INST"
+HOST_SHARED_DIR=${HOST_VPN_DIR}${LIBRESWAN_SHARED_DIR}
 
 case ${IMG_DOMAIN} in
 	"hub")
@@ -48,7 +49,7 @@ docker run \
 	--name=$DOCKER_INST \
 	-v ${HOST_SHARED_DIR}/ipsec.conf:/etc/ipsec.conf \
 	-v ${HOST_SHARED_DIR}/ipsec.secrets:/etc/ipsec.secrets \
-	-v ${HOST_SHARED_DIR}/conns:$VPN_SHARED_DIR/conns \
+	-v ${HOST_SHARED_DIR}/conns:$LIBRESWAN_SHARED_DIR/conns \
 	$IMG_TAG
 
 set +x
