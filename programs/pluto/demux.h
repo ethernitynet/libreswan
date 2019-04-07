@@ -1,8 +1,10 @@
 /* demultiplex incoming IKE messages
+ *
  * Copyright (C) 1998-2002,2013 D. Hugh Redelmeier <hugh@mimosa.com>
  * Copyright (C) 2005-2008 Michael Richardson <mcr@xelerance.com>
  * Copyright (C) 2012-2013 Paul Wouters <pwouters@redhat.com>
  * Copyright (C) 2013 Wolfgang Nothdurft <wolfgang@linogate.de>
+ * Copyright (C) 2018 Andrew Cagney
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -85,9 +87,6 @@ struct msg_digest {
 	bool new_iv_set;			/* (v1) */
 	struct state *st;			/* current state object */
 
-	enum message_role message_role;		/* (v2) */
-	msgid_t msgid_received;			/* (v2) - Host order! */
-
 	notification_t v1_note;			/* reason for failure */
 	bool dpd;				/* (v1) Peer supports RFC 3706 DPD */
 	bool ikev2;				/* Peer supports IKEv2 */
@@ -141,6 +140,7 @@ struct msg_digest {
 	struct isakmp_quirks quirks;
 };
 
+enum message_role v2_msg_role(const struct msg_digest *md);
 extern struct msg_digest *alloc_md(const char *mdname);
 struct msg_digest *clone_md(struct msg_digest *md, const char *name);
 extern void release_md(struct msg_digest *md);

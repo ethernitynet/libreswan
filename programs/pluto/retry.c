@@ -63,7 +63,7 @@ void retransmit_v1_msg(struct state *st)
 	DBG(DBG_CONTROL|DBG_RETRANSMITS, {
 		ipstr_buf b;
 		char cib[CONN_INST_BUF];
-		DBG_log("handling event EVENT_v1_RETRANSMIT for %s \"%s\"%s #%lu keying attempt %lu of %lu; retransmit %lu",
+		DBG_log("handling event EVENT_RETRANSMIT for %s \"%s\"%s #%lu keying attempt %lu of %lu; retransmit %lu",
 			ipstr(&c->spd.that.host_addr, &b),
 			c->name, fmt_conn_instance(c, cib),
 			st->st_serialno, try, try_limit,
@@ -72,7 +72,7 @@ void retransmit_v1_msg(struct state *st)
 
 	switch (retransmit(st)) {
 	case RETRANSMIT_YES:
-		resend_recorded_v1_ike_msg(st, "EVENT_v1_RETRANSMIT");
+		resend_recorded_v1_ike_msg(st, "EVENT_RETRANSMIT");
 		return;
 	case RETRANSMIT_NO:
 		return;
@@ -117,17 +117,6 @@ void retransmit_v1_msg(struct state *st)
 			loglog(RC_COMMENT, "%s", story);
 		}
 
-		if (try % 3 == 0 &&
-		    LIN(POLICY_IKEV2_ALLOW | POLICY_IKEV2_PROPOSE,
-			c->policy)) {
-			/*
-			 * so, let's retry with IKEv2, alternating
-			 * every three messages
-			 */
-			c->failed_ikev2 = FALSE;
-			loglog(RC_COMMENT,
-			       "next attempt will be IKEv2");
-		}
 		ipsecdoi_replace(st, try);
 	}
 
@@ -155,7 +144,7 @@ void retransmit_v2_msg(struct state *st)
 	DBG(DBG_CONTROL|DBG_RETRANSMITS, {
 		ipstr_buf b;
 		char cib[CONN_INST_BUF];
-		DBG_log("handling event EVENT_v2_RETRANSMIT for %s \"%s\"%s #%lu attempt %lu of %lu",
+		DBG_log("handling event EVENT_RETRANSMIT for %s \"%s\"%s #%lu attempt %lu of %lu",
 			ipstr(&c->spd.that.host_addr, &b),
 			c->name, fmt_conn_instance(c, cib),
 			st->st_serialno, try, try_limit);
@@ -174,7 +163,7 @@ void retransmit_v2_msg(struct state *st)
 
 	switch (retransmit(st)) {
 	case RETRANSMIT_YES:
-		send_recorded_v2_ike_msg(pst, "EVENT_v2_RETRANSMIT");
+		send_recorded_v2_ike_msg(pst, "EVENT_RETRANSMIT");
 		return;
 	case RETRANSMIT_NO:
 		return;
@@ -217,14 +206,6 @@ void retransmit_v2_msg(struct state *st)
 			libreswan_log("%s", story);
 		}
 
-		if (try % 3 == 0 && (c->policy & POLICY_IKEV1_ALLOW)) {
-			/*
-			 * so, let's retry with IKEv1, alternating every
-			 * three messages
-			 */
-			c->failed_ikev2 = TRUE;
-			loglog(RC_COMMENT, "next attempt will be IKEv1");
-		}
 		ipsecdoi_replace(st, try);
 	} else {
 		DBG(DBG_CONTROL|DBG_RETRANSMITS,
@@ -260,8 +241,7 @@ bool ikev2_schedule_retry(struct state *st)
 	unsigned long try = st->st_try;
 	unsigned long try_limit = c->sa_keying_tries;
 	if (try_limit > 0 && try >= try_limit) {
-		DBGF(DBG_CONTROL|DBG_RETRANSMITS,
-		     "maximum number of retries reached - deleting state");
+		dbg("maximum number of retries reached - deleting state");
 		return false;
 	}
 	LSWLOG_RC(RC_COMMENT, buf) {

@@ -70,8 +70,8 @@ static bool cert_issuer_has_current_crl(CERTCertDBHandle *handle,
 	if (handle == NULL || cert == NULL)
 		return false;
 
-	DBGF(DBG_X509, "%s : looking for a CRL issued by %s",
-	     __FUNCTION__, cert->issuerName);
+	dbg("%s: looking for a CRL issued by %s",
+	    __func__, cert->issuerName);
 
 	/*
 	 * Use SEC_LookupCrls method instead of SEC_FindCrlByName.
@@ -93,13 +93,13 @@ static bool cert_issuer_has_current_crl(CERTCertDBHandle *handle,
 				SECITEM_ItemsAreEqual(&cert->derIssuer,
 						 &crl_node->crl->crl.derName)) {
 			crl = crl_node->crl;
-			DBGF(DBG_X509, "%s : CRL found", __FUNCTION__);
+			dbg("%s : CRL found", __func__);
 			break;
 		}
 	}
 
 	bool res = crl != NULL && crl_is_current(crl);
-	DBGF(DBG_X509, "releasing crl list in %s with result %s",
+	dbg("releasing crl list in %s with result %s",
 	     __func__, res ? "true" : "false");
 	PORT_FreeArena(crl_list->arena, PR_FALSE);
 	return res;
@@ -196,7 +196,7 @@ static void set_rev_per_meth(CERTRevocationFlags *rev, PRUint64 *lflags,
 	rev->chainTests.cert_rev_flags_per_method = cflags;
 }
 
-static unsigned int rev_val_flags(PRBool strict)
+static unsigned int rev_val_flags(PRBool strict, PRBool post)
 {
 	unsigned int flags = CERT_REV_M_TEST_USING_THIS_METHOD;
 
@@ -204,17 +204,22 @@ static unsigned int rev_val_flags(PRBool strict)
 		flags |= CERT_REV_M_REQUIRE_INFO_ON_MISSING_SOURCE;
 		flags |= CERT_REV_M_FAIL_ON_MISSING_FRESH_INFO;
 	}
+
+	if (post) {
+		flags |= CERT_REV_M_FORCE_POST_METHOD_FOR_OCSP;
+	}
 	return flags;
 }
 
 static void set_rev_params(CERTRevocationFlags *rev, bool crl_strict,
 						     bool ocsp,
-						     bool ocsp_strict)
+						     bool ocsp_strict,
+						     bool ocsp_post)
 {
 	CERTRevocationTests *rt = &rev->leafTests;
 	PRUint64 *rf = rt->cert_rev_flags_per_method;
-	DBG(DBG_X509, DBG_log("crl_strict: %d, ocsp: %d, ocsp_strict: %d",
-				crl_strict, ocsp, ocsp_strict));
+	DBG(DBG_X509, DBG_log("crl_strict: %d, ocsp: %d, ocsp_strict: %d, ocsp_post: %d",
+				crl_strict, ocsp, ocsp_strict, ocsp_post));
 
 	rt->number_of_defined_methods = cert_revocation_method_count;
 	rt->number_of_preferred_methods = 0;
@@ -223,7 +228,7 @@ static void set_rev_params(CERTRevocationFlags *rev, bool crl_strict,
 	rf[cert_revocation_method_crl] |= CERT_REV_M_FORBID_NETWORK_FETCHING;
 
 	if (ocsp) {
-		rf[cert_revocation_method_ocsp] = rev_val_flags(ocsp_strict);
+		rf[cert_revocation_method_ocsp] = rev_val_flags(ocsp_strict, ocsp_post);
 	}
 }
 
@@ -272,7 +277,8 @@ static int vfy_chain_pkix(CERTCertificate **chain, int chain_len,
 
 	set_rev_per_meth(&rev, revFlagsLeaf, revFlagsChain);
 	set_rev_params(&rev, rev_opts[RO_CRL_S], rev_opts[RO_OCSP],
-						 rev_opts[RO_OCSP_S]);
+						 rev_opts[RO_OCSP_S],
+						 rev_opts[RO_OCSP_P]);
 	int in_idx = 0;
 	CERTValInParam cvin[7];
 	CERTValOutParam cvout[3];
@@ -299,6 +305,28 @@ static int vfy_chain_pkix(CERTCertificate **chain, int chain_len,
 	cvout[1].value.pointer.chain = NULL;
 	cvout[2].type = cert_po_end;
 
+	int fin;
+
+#ifdef NSS_IPSEC_PROFILE
+	SECStatus rv = CERT_PKIXVerifyCert(end_cert, certificateUsageIPsec,
+						cvin, cvout, NULL);
+	if (rv != SECSuccess || cur_log->count > 0) {
+		if (cur_log->count > 0 && cur_log->head != NULL) {
+			fin = nss_err_to_revfail(cur_log->head);
+		} else {
+			/*
+			 * An rv != SECSuccess without CERTVerifyLog
+			 * results should not * happen, but catch it anyway
+			 */
+			loglog(RC_LOG_SERIOUS, "X509: unspecified NSS verification failure");
+			fin = VERIFY_RET_FAIL;
+		}
+	} else {
+		DBG(DBG_X509, DBG_log("certificate is valid"));
+		*end_out = end_cert;
+		fin = VERIFY_RET_OK;
+	}
+#else
 	/* kludge alert!!
 	 * verification may be performed twice: once with the
 	 * 'client' usage and once with 'server', which is an NSS
@@ -307,12 +335,10 @@ static int vfy_chain_pkix(CERTCertificate **chain, int chain_len,
 	 * KU/EKU combinations
 	 */
 
-	int fin;
 	SECCertificateUsage usage;
 
 	for (usage = certificateUsageSSLClient; ; usage = certificateUsageSSLServer) {
 		SECStatus rv = CERT_PKIXVerifyCert(end_cert, usage, cvin, cvout, NULL);
-
 		if (rv != SECSuccess || cur_log->count > 0) {
 			if (cur_log->count > 0 && cur_log->head != NULL) {
 				if (usage == certificateUsageSSLClient &&
@@ -346,6 +372,7 @@ static int vfy_chain_pkix(CERTCertificate **chain, int chain_len,
 		}
 		break;
 	}
+#endif
 	pexpect(fin != 0);
 
 	CERT_DestroyCertList(trustcl);
@@ -384,7 +411,7 @@ static bool import_der_cert(CERTCertDBHandle *handle,
 	 * problem?).
 	 */
 	if (CERT_IsRootDERCert(&der_cert)) {
-		DBGF(DBG_X509, "ignoring root certificate");
+		dbg("ignoring root certificate");
 		return true;
 	}
 
@@ -426,7 +453,7 @@ static bool import_der_cert(CERTCertDBHandle *handle,
 	}
 	CERTCertificate *cert = *chain;
 	PORT_Free(chain);
-	DBGF(DBG_X509, "decoded %s", cert->subjectName);
+	dbg("decoded %s", cert->subjectName);
 
 	/* extra verification */
 #ifdef FIPS_CHECK

@@ -15,12 +15,7 @@
  *
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stddef.h>
-#include <string.h>
 #include <unistd.h>
-#include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -37,7 +32,6 @@
 #include "lswlog.h"
 
 #include "defs.h"
-#include "cookie.h"
 #include "id.h"
 #include "x509.h"
 #include "certs.h"
@@ -340,7 +334,7 @@ static err_t try_ECDSA_signature_v2(const u_char hash_val[MAX_DIGEST_LEN],
 		return "1" "NSS error: Not able to verify";
 	}
 
-	DBGF(DBG_CONTROL, "NSS: verified signature");
+	dbg("NSS: verified signature");
 
 	SECITEM_FreeItem(raw_signature, PR_TRUE);
 	unreference_key(&st->st_peer_pubkey);

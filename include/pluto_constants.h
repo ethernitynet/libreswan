@@ -28,6 +28,11 @@
 #  define DEFAULT_DNSSEC_ROOTKEY_FILE "<unused>"
 # endif
 
+enum ike_version {
+	IKEv1 = 1,
+	IKEv2 = 2,
+};
+
 /*
  * IETF has no recommendations
  * FIPS SP800-77 sayas IKE max is 24h, IPsec max is 8h
@@ -38,6 +43,7 @@
 #define IPSEC_SA_LIFETIME_DEFAULT secs_per_hour * 8
 #define IPSEC_SA_LIFETIME_MAXIMUM secs_per_day
 #define FIPS_IPSEC_SA_LIFETIME_MAXIMUM secs_per_hour * 8
+#define FIPS_IKE_SA_LIFETIME_MAXIMUM secs_per_hour * 24
 #define FIPS_MIN_RSA_KEY_SIZE 3072
 
 #define PLUTO_SHUNT_LIFE_DURATION_DEFAULT (15 * secs_per_minute)
@@ -56,7 +62,6 @@ enum kernel_interface {
 	USE_KLIPS = 2,
 	USE_NETKEY= 3,
 	USE_WIN2K = 4,
-	USE_MASTKLIPS = 5,
 	USE_BSDKAME = 6,
 };
 
@@ -94,6 +99,12 @@ enum keyword_xauthby {
 	XAUTHBY_FILE = 0,
 	XAUTHBY_PAM = 1,
 	XAUTHBY_ALWAYSOK = 2,
+};
+
+enum allow_global_redirect {
+	GLOBAL_REDIRECT_NO	= 0,
+	GLOBAL_REDIRECT_YES	= 1,
+	GLOBAL_REDIRECT_AUTO	= 2,
 };
 
 enum keyword_xauthfail {
@@ -157,26 +168,30 @@ enum event_type {
 	/* events associated with states */
 
 	EVENT_SO_DISCARD,		/* v1/v2 discard unfinished state object */
-	EVENT_v1_RETRANSMIT,		/* v1 Retransmit IKE packet */
-	EVENT_v1_SEND_XAUTH,		/* v1 send xauth request */
+	EVENT_RETRANSMIT,		/* v1/v2 retransmit IKE packet */
+
+	/*
+	 * For IKEv2 'replace' is really either a re-key a full
+	 * replace, or expire.  IKEv1 should be the same but isn't.
+	 */
+	EVENT_SA_REKEY,			/* v2 SA rekey event */
 	EVENT_SA_REPLACE,		/* v1/v2 SA replacement event */
-	EVENT_SA_REPLACE_IF_USED,	/* v1 SA replacement event */
-	EVENT_v2_SA_REPLACE_IF_USED_IKE, /* v2 IKE SA, replace if IPsec SA is in use */
-	EVENT_v2_SA_REPLACE_IF_USED,    /* v2 IPSEC SA, replace if used */
 	EVENT_SA_EXPIRE,		/* v1/v2 SA expiration event */
+
+	EVENT_v1_SEND_XAUTH,		/* v1 send xauth request */
+	EVENT_v1_SA_REPLACE_IF_USED,	/* v1 SA replacement event */
 	EVENT_NAT_T_KEEPALIVE,		/* NAT Traversal Keepalive */
 	EVENT_DPD,			/* v1 dead peer detection */
 	EVENT_DPD_TIMEOUT,		/* v1 dead peer detection timeout */
 	EVENT_CRYPTO_TIMEOUT,		/* v1/v2 after some time, give up on crypto helper */
 	EVENT_PAM_TIMEOUT,		/* v1/v2 give up on PAM helper */
 
-	EVENT_v2_RETRANSMIT,		/* v2 Initiator: Retransmit IKE packet */
-	EVENT_v2_RESPONDER_TIMEOUT,	/* v2 Responder: give up on IKE Initiator */
 	EVENT_v2_LIVENESS,		/* for dead peer detection */
 	EVENT_v2_RELEASE_WHACK,		/* release the whack fd */
 	EVENT_v2_INITIATE_CHILD,	/* initiate a IPsec child */
 	EVENT_v2_SEND_NEXT_IKE,		/* send next IKE message using parent */
 	EVENT_v2_ADDR_CHANGE,		/* process IP address deletion */
+	EVENT_v2_REDIRECT,		/* initiate new IKE exchange on new address */
 	EVENT_RETAIN,			/* don't change the previous event */
 };
 
@@ -230,18 +245,42 @@ enum seccomp_mode {
  * notification_t or v2_notification_t) means fail with that
  * notification.  Since <notification> is a uint16_t, it is limited to
  * 65535 possible values (0 isn't valid).
+ *
+ * tbd? means someone needs to look at the IKEv1/IKEv2 code and figure
+ * it out.
+ *
+ * delete 'if state': delete state is known - the post processing
+ * function function complete_*_state_transition() assumes there is a
+ * message and if it contains a state (*MDP)->ST delete it.  XXX: This
+ * is messed up - a state transition function, which by definition is
+ * operating on a state, should require a state and not the message.
+ *
+ * delete 'maybe?': For IKEv2, delete the IKE_SA_INIT responder state
+ * but only when STF_FAIL+<v2notification>.  IKEv1?  XXX: With no
+ * clear / fast rule, this just creates confusion; perhaps the intent
+ * is for it to delete larval response states, who knows?
+ *
+ * respond 'message?': if the state transition says a message should
+ * be sent (hopefully there is one).
+ *
+ * respond 'maybe?': For instance, with IKEv2 when a responder and
+ * STF_FAIL+<notification>, a notification is sent as the only content
+ * in a response.  XXX: for IKEv2 this is broken: KE responses can't
+ * use it - need to suggest KE; AUTH responses can't use it - need to
+ * send other stuff (but they do breaking auth).
+ *
+ * XXX: suspect STF_DROP can be merged into STF_FAIL.
  */
 
 typedef enum {
-	STF_IGNORE,             /* don't respond */
-	STF_SUSPEND,            /* unfinished -- don't release resources */
-	STF_OK,                 /* success */
-	STF_INTERNAL_ERROR,     /* discard everything, we failed */
-	STF_FATAL,              /* just stop. we can't continue. */
-	STF_DROP,               /* just stop, delete any state, and don't log or respond */
-	STF_FAIL,               /* discard everything, something failed.  notification_t added.
-				 * values STF_FAIL + x are notifications.
-				 */
+	/*                         TRANSITION  DELETE   RESPOND  LOG */
+	STF_IGNORE,             /*     no        no       no     tbd? */
+	STF_SUSPEND,            /*   suspend     no       no     tbd? */
+	STF_OK,                 /*    yes        no     message? tbd? */
+	STF_INTERNAL_ERROR,     /*     no        no      never   tbd? */
+	STF_FATAL,		/*     no      always    never   fail */
+	STF_DROP,		/*     no     if state   never  silent */
+	STF_FAIL,       	/*     no      maybe?    maybe?  fail */
 	STF_ROOF = STF_FAIL + 65536 /* see RFC and above */
 } stf_status;
 
@@ -298,28 +337,12 @@ typedef enum {
 enum {
 	DBG_floor_IX = 0,
 
-	DBG_RAW_IX = DBG_floor_IX,
-	DBG_PARSING_IX,
-	DBG_EMITTING_IX,
-	DBG_CONTROL_IX,
-	DBG_LIFECYCLE_IX,
-	DBG_KERNEL_IX,
-	DBG_DNS_IX,
-	DBG_OPPO_IX,
-	DBG_CONTROLMORE_IX,
+	DBG_BASE_IX = DBG_floor_IX, /* aka debug=all */
 
-	DBG_NATT_IX,
-	DBG_X509_IX,
-	DBG_DPD_IX,
-	DBG_XAUTH_IX,
-	DBG_RETRANSMITS_IX,
-	DBG_OPPOINFO_IX,
-
-	/* below are excluded from debug=all */
+	/* below are excluded from debug=base */
+	DBG_TMI_IX,
 	DBG_CRYPT_IX,
-	DBG_CRYPT_LOW_IX,
 	DBG_PRIVATE_IX,
-	DBG_PROPOSAL_PARSER_IX,
 
 	DBG_WHACKWATCH_IX,
 	DBG_ADD_PREFIX_IX,
@@ -331,31 +354,37 @@ enum {
 
 #define DBG_MASK	LRANGE(DBG_floor_IX, DBG_roof_IX - 1)
 #define DBG_NONE        0                                       /* no options on, including impairments */
-#define DBG_ALL         LRANGES(DBG_RAW, DBG_OPPOINFO)          /* all but some exceptions (see below) */
+#define DBG_ALL         DBG_BASE
 
 /* singleton sets: must be kept in sync with the items! */
 
-#define DBG_RAW		LELEM(DBG_RAW_IX)
-#define DBG_PARSING	LELEM(DBG_PARSING_IX)
-#define DBG_EMITTING	LELEM(DBG_EMITTING_IX)
-#define DBG_CONTROL	LELEM(DBG_CONTROL_IX)
-#define DBG_LIFECYCLE	LELEM(DBG_LIFECYCLE_IX)
-#define DBG_KERNEL	LELEM(DBG_KERNEL_IX)
-#define DBG_DNS		LELEM(DBG_DNS_IX)
-#define DBG_OPPO	LELEM(DBG_OPPO_IX)
-#define DBG_CONTROLMORE	LELEM(DBG_CONTROLMORE_IX)
-#define DBG_NATT	LELEM(DBG_NATT_IX)
-#define DBG_X509	LELEM(DBG_X509_IX)
-#define DBG_DPD		LELEM(DBG_DPD_IX)
-#define DBG_XAUTH	LELEM(DBG_XAUTH_IX)
-#define DBG_RETRANSMITS	LELEM(DBG_RETRANSMITS_IX)
-#define DBG_OPPOINFO	LELEM(DBG_OPPOINFO_IX)
+#define DBG_BASE        LELEM(DBG_BASE_IX)
+
+/* so things don't break */
+#define DBG_RAW		DBG_BASE
+#define DBG_PARSING	DBG_BASE
+#define DBG_EMITTING	DBG_BASE
+#define DBG_CONTROL	DBG_BASE
+#define DBG_LIFECYCLE	DBG_BASE
+#define DBG_KERNEL	DBG_BASE
+#define DBG_DNS		DBG_BASE
+#define DBG_OPPO	DBG_BASE
+#define DBG_CONTROLMORE	DBG_BASE
+#define DBG_NATT	DBG_BASE
+#define DBG_X509	DBG_BASE
+#define DBG_DPD		DBG_BASE
+#define DBG_XAUTH	DBG_BASE
+#define DBG_RETRANSMITS	DBG_BASE
+#define DBG_OPPOINFO	DBG_BASE
 
 /* These are not part of "all" debugging */
+#define DBG_TMI		LELEM(DBG_TMI_IX)
 #define DBG_CRYPT	LELEM(DBG_CRYPT_IX)
-#define DBG_CRYPT_LOW	LELEM(DBG_CRYPT_LOW_IX)
 #define DBG_PRIVATE	LELEM(DBG_PRIVATE_IX)
-#define DBG_PROPOSAL_PARSER	LELEM(DBG_PROPOSAL_PARSER_IX)
+
+/* so things don't break */
+#define DBG_CRYPT_LOW	DBG_CRYPT
+#define DBG_PROPOSAL_PARSER	DBG_TMI
 
 #define DBG_WHACKWATCH	LELEM(DBG_WHACKWATCH_IX)
 #define DBG_ADD_PREFIX	LELEM(DBG_ADD_PREFIX_IX)
@@ -568,10 +597,8 @@ enum state_kind {
 	 */
 	STATE_IKEv2_FLOOR,
 
-	STATE_IKEv2_BASE = STATE_IKEv2_FLOOR,	/* state when faking a state */
-
 	/* INITIATOR states */
-	/* STATE_PARENT_I0,	** waiting for KE to finish */
+	STATE_PARENT_I0 = STATE_IKEv2_FLOOR,	/* waiting for KE to finish */
 	STATE_PARENT_I1,        /* IKE_SA_INIT: sent initial message, waiting for reply */
 	STATE_PARENT_I2,        /* IKE_AUTH: sent auth message, waiting for reply */
 	STATE_PARENT_I3,        /* IKE_AUTH done: received auth response */
@@ -611,7 +638,6 @@ enum state_kind {
 	 * number as part of the message!) add new states here.
 	 */
 	STATE_PARENT_R0,
-	STATE_PARENT_I0,	/* waiting for KE to finish */
 
 	STATE_IKEv2_ROOF	/* not a state! */
 };
@@ -630,18 +656,20 @@ enum state_kind {
  * responder will see the I flag set in all packets it receives from
  * the original initiator.
  *
- * The original role is used to identify which SPI (cookie) to use in
- * the header and which keying material to use when encrypting and
- * decrypting SK payloads.
- *
  * The IKEv1 equivalent is the phase1 role.  It is identified by the
  * IKEv1 IS_PHASE1_INIT() macro.
  *
  * The values are chosen such that no role has values that overlap.
+ *
+ * XXX: If IKEv2 code correctly uses CHILD_SA and IKE_SA then the, is
+ * probably be redundant - An IKE SA's SA_ROLE should be consistent
+ * with its ORIGINAL_ROLE.  Currently code isn't consistent, so both
+ * are used/defined.
  */
+
 enum original_role {
-	ORIGINAL_INITIATOR = 1, /* IKE_I present */
-	ORIGINAL_RESPONDER = 2, /* IKE_I missing */
+	ORIGINAL_INITIATOR = 5, /* IKE_I present */
+	ORIGINAL_RESPONDER = 6, /* IKE_I missing */
 };
 
 /*
@@ -664,23 +692,33 @@ enum message_role {
 	MESSAGE_RESPONSE = 4, /* MSR_R present */
 };
 
+extern struct keywords message_role_names;
+
 /*
  * The SA role determined by who initiated the SA.
  *
- * For both an IKE and CHILD SA it is determined by who sent the
- * request.
+ * For all IKEv2 exchanges establishing or rekeying an SA it is
+ * determined by who initiated that SA exchange.  During the exchange,
+ * the SA_INITIATOR will always have the R(esponse) bit clear and the
+ * SA_RESPONDER will always have the R(esponse) bit set.
+ *
+ * The IKE SA's role is used to identify which SPI (cookie) to use in
+ * the header by setting or clearing the I(Initiator) flag.
+ *
+ * The IKE or CHILD SA role is used when assigning keying material.
+ *
+ * The IKEv1 equivalent is the phase1 role.  It is identified by the
+ * IKEv1 IS_PHASE1_INIT() macro.
  *
  * The values are chosen such that no role has values that overlap.
- *
- * XXX: If IKEv2 code correctly used CHILD_SA and IKE_SA then
- * ORIGINAL_ROLE, above is probably be redundant - An IKE SA's SA_ROLE
- * should be consistent with its ORIGINAL_ROLE.  Currently code isn't
- * consistent, so both are used/defined.
  */
+
 enum sa_role {
-	SA_INITIATOR = 5,
-	SA_RESPONDER = 6,
+	SA_INITIATOR = 1,
+	SA_RESPONDER = 2,
 };
+
+extern struct keywords sa_role_names;
 
 
 #define PHASE1_INITIATOR_STATES  (LELEM(STATE_MAIN_I1) | \
@@ -988,11 +1026,14 @@ enum sa_policy_bits {
 	 */
 	POLICY_IKEV1_ALLOW_IX,	/* !accept IKEv1?  0x0100 0000 */
 	POLICY_IKEV2_ALLOW_IX,	/* accept IKEv2?   0x0200 0000 */
-	POLICY_IKEV2_PROPOSE_IX,	/* propose IKEv2?  0x0400 0000 */
-#define POLICY_IKEV2_MASK	LRANGE(POLICY_IKEV1_ALLOW_IX, POLICY_IKEV2_PROPOSE_IX)
 
 	POLICY_IKEV2_ALLOW_NARROWING_IX,	/* Allow RFC-5669 section 2.9? 0x0800 0000 */
 	POLICY_IKEV2_PAM_AUTHORIZE_IX,
+	POLICY_SEND_REDIRECT_ALWAYS_IX,		/* next three policies are for RFC 5685 */
+	POLICY_SEND_REDIRECT_NEVER_IX,
+#define POLICY_SEND_REDIRECT_MASK \
+	LRANGE(POLICY_SEND_REDIRECT_ALWAYS_IX, POLICY_SEND_REDIRECT_NEVER_IX)
+	POLICY_ACCEPT_REDIRECT_YES_IX,
 
 	POLICY_SAREF_TRACK_IX,	/* Saref tracking via _updown */
 	POLICY_SAREF_TRACK_CONNTRACK_IX,	/* use conntrack optimization */
@@ -1043,9 +1084,11 @@ enum sa_policy_bits {
 #define POLICY_OVERLAPIP	LELEM(POLICY_OVERLAPIP_IX)	/* can two conns that have subnet=vhost: declare the same IP? */
 #define POLICY_IKEV1_ALLOW	LELEM(POLICY_IKEV1_ALLOW_IX)	/* !accept IKEv1?  0x0100 0000 */
 #define POLICY_IKEV2_ALLOW	LELEM(POLICY_IKEV2_ALLOW_IX)	/* accept IKEv2?   0x0200 0000 */
-#define POLICY_IKEV2_PROPOSE	LELEM(POLICY_IKEV2_PROPOSE_IX)	/* propose IKEv2?  0x0400 0000 */
 #define POLICY_IKEV2_ALLOW_NARROWING	LELEM(POLICY_IKEV2_ALLOW_NARROWING_IX)	/* Allow RFC-5669 section 2.9? 0x0800 0000 */
-#define POLICY_IKEV2_PAM_AUTHORIZE     LELEM(POLICY_IKEV2_PAM_AUTHORIZE_IX)    /* non-standard, custom PAM authorize call on ID */
+#define POLICY_IKEV2_PAM_AUTHORIZE	LELEM(POLICY_IKEV2_PAM_AUTHORIZE_IX)    /* non-standard, custom PAM authorize call on ID */
+#define POLICY_SEND_REDIRECT_ALWAYS	LELEM(POLICY_SEND_REDIRECT_ALWAYS_IX)
+#define POLICY_SEND_REDIRECT_NEVER	LELEM(POLICY_SEND_REDIRECT_NEVER_IX)
+#define POLICY_ACCEPT_REDIRECT_YES	LELEM(POLICY_ACCEPT_REDIRECT_YES_IX)
 #define POLICY_SAREF_TRACK	LELEM(POLICY_SAREF_TRACK_IX)	/* Saref tracking via _updown */
 #define POLICY_SAREF_TRACK_CONNTRACK	LELEM(POLICY_SAREF_TRACK_CONNTRACK_IX)	/* use conntrack optimization */
 #define POLICY_IKE_FRAG_ALLOW	LELEM(POLICY_IKE_FRAG_ALLOW_IX)

@@ -13,7 +13,7 @@
  * Copyright (C) 2013 David McCullough <ucdevel@gmail.com>
  * Copyright (C) 2013,2018 D. Hugh Redelmeier <hugh@mimosa.com>
  * Copyright (C) 2016 Andrew Cagney <cagney@gnu.org>
- * Copyright (C) 2017 Vukasin Karadzic <vukasin.karadzic@gmail.com>
+ * Copyright (C) 2017-2018 Vukasin Karadzic <vukasin.karadzic@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -148,7 +148,7 @@ void ipsecconf_default_values(struct starter_config *cfg)
 	cfg->conn_default.policy =
 		POLICY_TUNNEL |
 		POLICY_ENCRYPT | POLICY_PFS |
-		POLICY_IKEV1_ALLOW | POLICY_IKEV2_ALLOW |	/* ikev2=permit */
+		POLICY_IKEV2_ALLOW |
 		POLICY_SAREF_TRACK |         /* sareftrack=yes */
 		POLICY_IKE_FRAG_ALLOW |      /* ike_frag=yes */
 		POLICY_ESN_NO;      	     /* esn=no */
@@ -804,7 +804,7 @@ static bool translate_conn(struct starter_conn *conn,
 		case kt_subnet:
 		case kt_idtype:
 			/* all treated as strings for now */
-			assert(kw->keyword.keydef->field < KEY_STRINGS_MAX);
+			assert(kw->keyword.keydef->field < KEY_STRINGS_ROOF);
 			if ((*set_strings)[field] == k_set) {
 				char tmp_err[512];
 
@@ -843,16 +843,15 @@ static bool translate_conn(struct starter_conn *conn,
 		case kt_appendstring:
 		case kt_appendlist:
 			/* implicitly, this field can have multiple values */
-			assert(kw->keyword.keydef->field < KEY_STRINGS_MAX);
+			assert(kw->keyword.keydef->field < KEY_STRINGS_ROOF);
 			if ((*the_strings)[field] == NULL) {
 				(*the_strings)[field] = clone_str(kw->string, "kt_appendlist kw->string");
 			} else {
 				char *s = (*the_strings)[field];
 				size_t old_len = strlen(s);	/* excludes '\0' */
 				size_t new_len = strlen(kw->string);
-				char *n;
+				char *n = alloc_bytes(old_len + 1 + new_len + 1, "kt_appendlist");
 
-				n = alloc_bytes(old_len + 1 + new_len + 1, "kt_appendlist");
 				memcpy(n, s, old_len);
 				n[old_len] = ' ';
 				memcpy(n + old_len + 1, kw->string, new_len + 1);	/* includes '\0' */
@@ -864,8 +863,8 @@ static bool translate_conn(struct starter_conn *conn,
 
 		case kt_rsakey:
 		case kt_loose_enum:
-			assert(field < KEY_STRINGS_MAX);
-			assert(field < KEY_NUMERIC_MAX);
+			assert(field < KEY_STRINGS_ROOF);
+			assert(field < KEY_NUMERIC_ROOF);
 
 			if ((*set_options)[field] == k_set) {
 				char tmp_err[512];
@@ -913,7 +912,7 @@ static bool translate_conn(struct starter_conn *conn,
 		case kt_time:
 		case kt_percent:
 			/* all treated as a number for now */
-			assert(field < KEY_NUMERIC_MAX);
+			assert(field < KEY_NUMERIC_ROOF);
 
 			if ((*set_options)[field] == k_set) {
 				char tmp_err[512];
@@ -1241,6 +1240,9 @@ static bool load_conn(
 
 	str_to_conn(connalias, KSCF_CONNALIAS);
 
+	str_to_conn(redirect_to, KSCF_REDIRECT_TO);
+	str_to_conn(accept_redirect_to, KSCF_ACCEPT_REDIRECT_TO);
+
 #	undef str_to_conn
 
 	if (conn->options_set[KBF_PHASE2]) {
@@ -1248,28 +1250,69 @@ static bool load_conn(
 		conn->policy |= conn->options[KBF_PHASE2];
 	}
 
+	/*
+	 * This option has really been turned into a boolean, but
+	 * we need the keywords for backwards compatibility for now
+	 */
 	if (conn->options_set[KBF_IKEv2]) {
-		lset_t pv2 = LEMPTY;
 
 		switch (conn->options[KBF_IKEv2]) {
 		case fo_never:
-			pv2 = POLICY_IKEV1_ALLOW;
-			break;
-
 		case fo_permit:
-			/* this is the default for now */
-			pv2 = POLICY_IKEV1_ALLOW | POLICY_IKEV2_ALLOW;
+			conn->policy |= POLICY_IKEV1_ALLOW;
+			/* clear any inherited default */
+			conn->policy &= ~POLICY_IKEV2_ALLOW;
 			break;
 
 		case fo_propose:
-			pv2 = POLICY_IKEV1_ALLOW | POLICY_IKEV2_ALLOW | POLICY_IKEV2_PROPOSE;
-			break;
-
 		case fo_insist:
-			pv2 =                      POLICY_IKEV2_ALLOW | POLICY_IKEV2_PROPOSE;
+			conn->policy |= POLICY_IKEV2_ALLOW;
+			/* clear any inherited default */
+			conn->policy &= ~POLICY_IKEV1_ALLOW;
 			break;
 		}
-		conn->policy = (conn->policy & ~POLICY_IKEV2_MASK) | pv2;
+	}
+
+	if (conn->options_set[KBF_SEND_REDIRECT]) {
+		if (!LIN(POLICY_IKEV1_ALLOW, conn->policy)) {
+			switch (conn->options[KBF_SEND_REDIRECT]) {
+			case yna_yes:
+				conn->policy |= POLICY_SEND_REDIRECT_ALWAYS;
+				if (conn->redirect_to == NULL) {
+					starter_log(LOG_LEVEL_INFO,
+					"redirect-to is not specified, although send-redirect is set to yes");
+				}
+				break;
+
+			case yna_no:
+				conn->policy |= POLICY_SEND_REDIRECT_NEVER;
+				break;
+
+			case yna_auto:
+				break;
+			}
+		}
+	}
+
+	if (conn->options_set[KBF_ACCEPT_REDIRECT]) {
+		if (!LIN(POLICY_IKEV1_ALLOW, conn->policy)) {
+			switch (conn->options[KBF_ACCEPT_REDIRECT]) {
+			case yna_yes:
+				conn->policy |= POLICY_ACCEPT_REDIRECT_YES;
+				break;
+
+			/* default policy is no, so there is no POLICY_ACCEPT_REDIRECT_YES
+			 * in policy.
+			 *
+			 * technically the values for this option are yes/no,
+			 * although we use yna option set (we do not want to
+			 * make new yes-no enum)
+			 */
+			case yna_auto:
+			case yna_no:
+				break;
+			}
+		}
 	}
 
 	if (conn->options_set[KBF_PPK]) {
@@ -1414,8 +1457,7 @@ static bool load_conn(
 			POLICY_NOPMTUDISC | POLICY_SAREF_TRACK_CONNTRACK) &
 			/* remove IKE related options */
 			~(POLICY_IKEV1_ALLOW | POLICY_IKEV2_ALLOW |
-			POLICY_IKEV2_PROPOSE | POLICY_IKE_FRAG_ALLOW |
-			POLICY_IKE_FRAG_FORCE);
+			POLICY_IKE_FRAG_ALLOW | POLICY_IKE_FRAG_FORCE);
 	}
 
 	err |= validate_end(conn, &conn->left, "left", perrl);
@@ -1460,17 +1502,17 @@ static void conn_default(struct starter_conn *conn,
 #undef CLR
 #undef C
 
-	for (i = 0; i < KSCF_MAX; i++) {
+	for (i = 0; i < KSCF_ROOF; i++) {
 		conn->left.strings[i] = clone_str(def->left.strings[i], "conn default left item");
 		conn->right.strings[i] = clone_str(def->right.strings[i], "conn default right item");
 	}
-	for (i = 0; i < KNCF_MAX; i++) {
+	for (i = 0; i < KNCF_ROOF; i++) {
 		conn->left.options[i] = def->left.options[i];
 		conn->right.options[i] = def->right.options[i];
 	}
-	for (i = 0; i < KSF_MAX; i++)
+	for (i = 0; i < KSF_ROOF; i++)
 		conn->strings[i] = clone_str(def->strings[i], "conn default string item");
-	for (i = 0; i < KBF_MAX; i++)
+	for (i = 0; i < KBF_ROOF; i++)
 		conn->options[i] = def->options[i];
 
 	conn->esp = clone_str(def->esp, "conn default esp");
@@ -1618,11 +1660,11 @@ static void confread_free_conn(struct starter_conn *conn)
 	pfreeany(conn->right.id);
 	pfreeany(conn->right.rsakey1);
 	pfreeany(conn->right.rsakey2);
-	for (i = 0; i < KSCF_MAX; i++) {
+	for (i = 0; i < KSCF_ROOF; i++) {
 		pfreeany(conn->left.strings[i]);
 		pfreeany(conn->right.strings[i]);
 	}
-	for (i = 0; i < KSF_MAX; i++)
+	for (i = 0; i < KSF_ROOF; i++)
 		pfreeany(conn->strings[i]);
 
 	pfreeany(conn->connalias);
@@ -1644,7 +1686,7 @@ void confread_free(struct starter_config *cfg)
 
 	int i;
 
-	for (i = 0; i < KSF_MAX; i++)
+	for (i = 0; i < KSF_ROOF; i++)
 		pfreeany(cfg->setup.strings[i]);
 
 	confread_free_conn(&cfg->conn_default);

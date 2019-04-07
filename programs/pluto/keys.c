@@ -26,14 +26,7 @@
  *
  */
 
-#include <stddef.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <ctype.h>
 #include <unistd.h>
-#include <errno.h>
-#include <time.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -49,7 +42,6 @@
 #include "certs.h"
 #include "connections.h"        /* needs id.h */
 #include "state.h"
-#include "lex.h"
 #include "keys.h"
 #include "log.h"
 #include "whack.h"      /* for RC_LOG_SERIOUS */
@@ -64,8 +56,8 @@
 #include <prerror.h>
 #include <prinit.h>
 #include <prmem.h>
-#include <key.h>
-#include <keyt.h>
+#include <keyhi.h>
+#include <keythi.h>
 #include <nss.h>
 #include <pk11pub.h>
 #include <seccomon.h>
@@ -697,13 +689,13 @@ stf_status RSA_check_signature_gen(struct state *st,
 
 		for (struct pubkey_list *p = pluto_pubkeys; p != NULL; p = *pp) {
 			struct pubkey *key = p->key;
-			char printkid[IDTOA_BUF];
 
-			idtoa(&key->id, printkid, IDTOA_BUF);
 			DBG(DBG_CONTROL, {
+				char printkid[IDTOA_BUF];
+				idtoa(&key->id, printkid, IDTOA_BUF);
 				char thatid[IDTOA_BUF];
 				idtoa(&c->spd.that.id, thatid, IDTOA_BUF);
-				DBG_log("checking keyid '%s' for match with '%s'",
+				DBG_log("checking RSA keyid '%s' for match with '%s'",
 					printkid, thatid);
 			});
 
@@ -828,13 +820,12 @@ stf_status ECDSA_check_signature_gen(struct state *st,
 
 		for (struct pubkey_list *p = pluto_pubkeys; p != NULL; p = *pp) {
 			struct pubkey *key = p->key;
-			char printkid[IDTOA_BUF];
-
-			idtoa(&key->id, printkid, IDTOA_BUF);
 			DBG(DBG_CONTROL, {
+				char printkid[IDTOA_BUF];
+				idtoa(&key->id, printkid, IDTOA_BUF);
 				char thatid[IDTOA_BUF];
 				idtoa(&c->spd.that.id, thatid, IDTOA_BUF);
-				DBG_log("checking keyid '%s' for match with '%s'",
+				DBG_log("checking ECDSA keyid '%s' for match with '%s'",
 					printkid, thatid);
 			});
 
@@ -1352,8 +1343,7 @@ void list_public_keys(bool utc, bool check_pub_keys)
 			break;
 		}
 		default:
-			DBGF(DBG_CONTROL, "ignoring key with unsupported alg %d",
-			     key->alg);
+			dbg("ignoring key with unsupported alg %d", key->alg);
 		}
 		p = p->next;
 	}
@@ -1377,7 +1367,7 @@ err_t load_nss_cert_secret(CERTCertificate *cert)
 static bool rsa_pubkey_ckaid_matches(struct pubkey *pubkey, char *buf, size_t buflen)
 {
 	if (pubkey->u.rsa.n.ptr == NULL) {
-		DBGF(DBG_CONTROL, "RSA pubkey with NULL modulus");
+		dbg("RSA pubkey with NULL modulus");
 		return FALSE;
 	}
 	SECItem modulus = {
@@ -1387,7 +1377,7 @@ static bool rsa_pubkey_ckaid_matches(struct pubkey *pubkey, char *buf, size_t bu
 	};
 	SECItem *pubkey_ckaid = PK11_MakeIDFromPubKey(&modulus);
 	if (pubkey_ckaid == NULL) {
-		DBGF(DBG_CONTROL, "RSA pubkey incomputable CKAID");
+		dbg("RSA pubkey incomputable CKAID");
 		return FALSE;
 	}
 	LSWDBGP(DBG_CONTROL, buf) {
@@ -1402,17 +1392,18 @@ static bool rsa_pubkey_ckaid_matches(struct pubkey *pubkey, char *buf, size_t bu
 
 struct pubkey *get_pubkey_with_matching_ckaid(const char *ckaid)
 {
-	size_t buflen = strlen(ckaid); /* good enough */
-	char *buf = alloc_bytes(buflen, "ckaid");
-	const char *ugh = ttodata(ckaid, 0, 16, buf, buflen, &buflen);
+	/* convert hex string ckaid to binary bin */
+	size_t binlen = (strlen(ckaid) + 1) / 2;
+	char *bin = alloc_bytes(binlen, "ckaid");
+	const char *ugh = ttodata(ckaid, 0, 16, bin, binlen, &binlen);
 	if (ugh != NULL) {
-		pfree(buf);
+		pfree(bin);
 		/* should have been rejected by whack? */
 		libreswan_log("invalid hex CKAID '%s': %s", ckaid, ugh);
 		return NULL;
 	}
 	DBG(DBG_CONTROL,
-	    DBG_dump("looking for pubkey with CKAID that matches", buf, buflen));
+	    DBG_dump("looking for pubkey with CKAID that matches", bin, binlen));
 
 	struct pubkey_list *p;
 	for (p = pluto_pubkeys; p != NULL; p = p->next) {
@@ -1420,9 +1411,9 @@ struct pubkey *get_pubkey_with_matching_ckaid(const char *ckaid)
 		struct pubkey *key = p->key;
 		switch (key->alg) {
 		case PUBKEY_ALG_RSA: {
-			if (rsa_pubkey_ckaid_matches(key, buf, buflen)) {
-				DBGF(DBG_CONTROL, "ckaid matching pubkey");
-				pfree(buf);
+			if (rsa_pubkey_ckaid_matches(key, bin, binlen)) {
+				dbg("ckaid matching pubkey");
+				pfree(bin);
 				return key;
 			}
 		}
@@ -1430,6 +1421,6 @@ struct pubkey *get_pubkey_with_matching_ckaid(const char *ckaid)
 			break;
 		}
 	}
-	pfree(buf);
+	pfree(bin);
 	return NULL;
 }

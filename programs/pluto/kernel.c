@@ -78,6 +78,7 @@
 #include "packet.h"  /* for pb_stream in nat_traversal.h */
 #include "nat_traversal.h"
 #include "ip_address.h"
+#include "af_info.h"
 #include "lswfips.h" /* for libreswan_fipsmode() */
 
 /* which kernel interface to use */
@@ -1748,7 +1749,7 @@ ipsec_spi_t shunt_policy_spi(const struct connection *c, bool prospective)
 		fail_spi[(c->policy & POLICY_FAIL_MASK) >> POLICY_FAIL_SHIFT];
 }
 
-static bool del_spi(ipsec_spi_t spi, int proto,
+bool del_spi(ipsec_spi_t spi, int proto,
 		const ip_address *src, const ip_address *dest)
 {
 	char text_said[SATOT_BUF];
@@ -2213,13 +2214,6 @@ static bool setup_half_ipsec_sa(struct state *st, bool inbound)
 		said_next->natt_dport = natt_dport;
 		said_next->natt_type = natt_type;
 		said_next->natt_oa = &natt_oa;
-#ifdef KLIPS_MAST
-		if (st->st_esp.attrs.encapsulation ==
-			ENCAPSULATION_MODE_TRANSPORT &&
-			useful_mastno != -1)
-			said_next->outif = MASTTRANSPORT_OFFSET +
-				useful_mastno;
-#endif
 		said_next->text_said = text_esp;
 
 		DBG(DBG_PRIVATE, {
@@ -2518,6 +2512,23 @@ static bool teardown_half_ipsec_sa(struct state *st, bool inbound)
 		struct ipsec_proto_info *info;
 	} protos[4];
 	int i = 0;
+	bool redirected = FALSE;
+	ip_address tmp_ip;
+
+	/*
+	 * If we are the initiator, were redirected and
+	 * now are trying to remove 'old' stuff, we
+	 * are going to temporary hack c->spd.that.host_addr,
+	 * because we changed it when we were redirected
+	 * and it has now the new address (but we need
+	 * the old one).
+	 */
+	if (!sameaddr(&st->st_remoteaddr, &c->spd.that.host_addr) &&
+			!isanyaddr(&c->temp_vars.redirect_ip)) {
+		redirected = TRUE;
+		tmp_ip = c->spd.that.host_addr;
+		c->spd.that.host_addr = st->st_remoteaddr;
+	}
 
 	/* ??? CLANG 3.5 thinks that c might be NULL */
 	if (kernel_ops->inbound_eroute && inbound &&
@@ -2595,6 +2606,10 @@ static bool teardown_half_ipsec_sa(struct state *st, bool inbound)
 
 		result &= del_spi(spi, proto, src, dst);
 	}
+
+	if (redirected)
+		c->spd.that.host_addr = tmp_ip;
+
 	return result;
 }
 
@@ -2632,7 +2647,7 @@ void init_kernel(void)
 {
 	struct utsname un;
 
-#if defined(NETKEY_SUPPORT) || defined(KLIPS) || defined(KLIPS_MAST)
+#if defined(NETKEY_SUPPORT) || defined(KLIPS)
 	struct stat buf;
 #endif
 
@@ -2667,31 +2682,11 @@ void init_kernel(void)
 		break;
 #endif
 
-#if defined(KLIPS_MAST)
-	case USE_MASTKLIPS:
-		if (stat("/proc/sys/net/ipsec/debug_mast", &buf) != 0) {
-			libreswan_log("No MASTKLIPS kernel interface detected");
-			exit_pluto(PLUTO_EXIT_KERNEL_FAIL);
-		}
-		libreswan_log("Using KLIPSng (mast) IPsec interface code on %s",
-			kversion);
-		kernel_ops = &mast_kernel_ops;
-		break;
-#endif
-
 #if defined(BSD_KAME)
 	case USE_BSDKAME:
 		libreswan_log("Using BSD/KAME IPsec interface code on %s",
 			kversion);
 		kernel_ops = &bsdkame_kernel_ops;
-		break;
-#endif
-
-#if defined(WIN32) && defined(WIN32_NATIVE)
-	case USE_WIN32_NATIVE:
-		libreswan_log("Using Win2K native IPsec interface code on %s",
-			kversion);
-		kernel_ops = &win2k_kernel_ops;
 		break;
 #endif
 
@@ -3367,7 +3362,6 @@ void delete_ipsec_sa(struct state *st)
 		linux_audit_conn(st, LAK_CHILD_DESTROY);
 #endif
 	switch (kern_interface) {
-	case USE_MASTKLIPS:
 	case USE_KLIPS:
 	case USE_NETKEY:
 		{
@@ -3437,16 +3431,6 @@ void delete_ipsec_sa(struct state *st)
 							libreswan_log("shunt_eroute() failed replace with shunt in delete_ipsec_sa()");
 						}
 					}
-
-#ifdef KLIPS_MAST
-					/* in mast mode we must also delete the iptables rule */
-					if (kern_interface == USE_MASTKLIPS)
-						if (!sag_eroute(st, sr,
-									ERO_DELETE,
-									"delete")) {
-							libreswan_log("sag_eroute() failed delete in delete_ipsec_sa()");
-						}
-#endif
 				}
 			}
 			(void) teardown_half_ipsec_sa(st, FALSE);
@@ -3454,12 +3438,6 @@ void delete_ipsec_sa(struct state *st)
 		(void) teardown_half_ipsec_sa(st, TRUE);
 
 		break;
-#if defined(WIN32) && defined(WIN32_NATIVE)
-	case USE_WIN32_NATIVE:
-		DBG(DBG_CONTROL,
-			DBG_log("No support (required?) to delete_ipsec_sa with Win2k"));
-		break;
-#endif
 	case NO_KERNEL:
 		DBG(DBG_CONTROL,
 			DBG_log("No support required to delete_ipsec_sa with NoKernel support"));
@@ -3487,7 +3465,7 @@ bool was_eroute_idle(struct state *st, deltatime_t since_when)
  */
 bool get_sa_info(struct state *st, bool inbound, deltatime_t *ago /* OUTPUT */)
 {
-	const struct connection *const c = st->st_connection;
+	struct connection *const c = st->st_connection;
 
 	if (kernel_ops->get_sa == NULL || (!st->st_esp.present && !st->st_ah.present)) {
 		return FALSE;
@@ -3508,6 +3486,21 @@ bool get_sa_info(struct state *st, bool inbound, deltatime_t *ago /* OUTPUT */)
 
 	const ip_address *src, *dst;
 	ipsec_spi_t spi;
+	bool redirected = FALSE;
+	ip_address tmp_ip;
+
+	/*
+	 * if we were redirected (using the REDIRECT
+	 * mechanism), change
+	 * spd.that.host_addr temporarily, we reset
+	 * it back later
+	 */
+	if (!sameaddr(&st->st_remoteaddr, &c->spd.that.host_addr) &&
+			!isanyaddr(&c->temp_vars.redirect_ip)) {
+		redirected = TRUE;
+		tmp_ip = c->spd.that.host_addr;
+		c->spd.that.host_addr = st->st_remoteaddr;
+	}
 
 	if (inbound) {
 		src = &c->spd.that.host_addr;
@@ -3561,6 +3554,10 @@ bool get_sa_info(struct state *st, bool inbound, deltatime_t *ago /* OUTPUT */)
 		if (ago != NULL)
 			*ago = monotimediff(mononow(), p2->peer_lastused);
 	}
+
+	if (redirected)
+		c->spd.that.host_addr = tmp_ip;
+
 	return TRUE;
 }
 

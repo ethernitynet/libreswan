@@ -77,6 +77,7 @@
 #include "ip_address.h"
 #include "send.h"		/* for send without recording */
 #include "ikev1_send.h"
+#include "af_info.h"
 
 /* forward declarations */
 static stf_status xauth_client_ackstatus(struct state *st,
@@ -533,8 +534,8 @@ static stf_status modecfg_send_set(struct state *st)
 			hdr.isa_flags |= ISAKMP_FLAGS_RESERVED_BIT6;
 		}
 
-		memcpy(hdr.isa_icookie, st->st_icookie, COOKIE_SIZE);
-		memcpy(hdr.isa_rcookie, st->st_rcookie, COOKIE_SIZE);
+		hdr.isa_ike_initiator_spi = st->st_ike_spis.initiator;
+		hdr.isa_ike_responder_spi = st->st_ike_spis.responder;
 
 		if (!out_struct(&hdr, &isakmp_hdr_desc, &reply, &rbody))
 			return STF_INTERNAL_ERROR;
@@ -567,10 +568,10 @@ static stf_status modecfg_send_set(struct state *st)
 	/* Transmit */
 	record_and_send_v1_ike_msg(st, &reply, "ModeCfg set");
 
-	if (st->st_event->ev_type != EVENT_v1_RETRANSMIT &&
+	if (st->st_event->ev_type != EVENT_RETRANSMIT &&
 	    st->st_event->ev_type != EVENT_NULL) {
 		delete_event(st);
-		start_retransmits(st, EVENT_v1_RETRANSMIT);
+		start_retransmits(st);
 	}
 
 	return STF_OK;
@@ -629,8 +630,8 @@ stf_status xauth_send_request(struct state *st)
 		if (IMPAIR(SEND_BOGUS_ISAKMP_FLAG)) {
 			hdr.isa_flags |= ISAKMP_FLAGS_RESERVED_BIT6;
 		}
-		memcpy(hdr.isa_icookie, st->st_icookie, COOKIE_SIZE);
-		memcpy(hdr.isa_rcookie, st->st_rcookie, COOKIE_SIZE);
+		hdr.isa_ike_initiator_spi = st->st_ike_spis.initiator;
+		hdr.isa_ike_responder_spi = st->st_ike_spis.responder;
 
 		if (!out_struct(&hdr, &isakmp_hdr_desc, &reply, &rbody))
 			return STF_INTERNAL_ERROR;
@@ -700,9 +701,9 @@ stf_status xauth_send_request(struct state *st)
 		}
 	}
 
-	if (st->st_event->ev_type != EVENT_v1_RETRANSMIT) {
+	if (st->st_event->ev_type != EVENT_RETRANSMIT) {
 		delete_event(st);
-		start_retransmits(st, EVENT_v1_RETRANSMIT);
+		start_retransmits(st);
 	}
 
 	return STF_OK;
@@ -743,8 +744,8 @@ stf_status modecfg_send_request(struct state *st)
 			hdr.isa_flags |= ISAKMP_FLAGS_RESERVED_BIT6;
 		}
 
-		memcpy(hdr.isa_icookie, st->st_icookie, COOKIE_SIZE);
-		memcpy(hdr.isa_rcookie, st->st_rcookie, COOKIE_SIZE);
+		hdr.isa_ike_initiator_spi = st->st_ike_spis.initiator;
+		hdr.isa_ike_responder_spi = st->st_ike_spis.responder;
 
 		if (!out_struct(&hdr, &isakmp_hdr_desc, &reply, &rbody))
 			return STF_INTERNAL_ERROR;
@@ -798,9 +799,9 @@ stf_status modecfg_send_request(struct state *st)
 	/* Transmit */
 	record_and_send_v1_ike_msg(st, &reply, "modecfg: req");
 
-	if (st->st_event->ev_type != EVENT_v1_RETRANSMIT) {
+	if (st->st_event->ev_type != EVENT_RETRANSMIT) {
 		delete_event(st);
-		start_retransmits(st, EVENT_v1_RETRANSMIT);
+		start_retransmits(st);
 	}
 	st->hidden_variables.st_modecfg_started = TRUE;
 
@@ -841,8 +842,8 @@ static stf_status xauth_send_status(struct state *st, int status)
 		if (IMPAIR(SEND_BOGUS_ISAKMP_FLAG)) {
 			hdr.isa_flags |= ISAKMP_FLAGS_RESERVED_BIT6;
 		}
-		memcpy(hdr.isa_icookie, st->st_icookie, COOKIE_SIZE);
-		memcpy(hdr.isa_rcookie, st->st_rcookie, COOKIE_SIZE);
+		hdr.isa_ike_initiator_spi = st->st_ike_spis.initiator;
+		hdr.isa_ike_responder_spi = st->st_ike_spis.responder;
 
 		if (!out_struct(&hdr, &isakmp_hdr_desc, &reply, &rbody))
 			return STF_INTERNAL_ERROR;
@@ -886,7 +887,7 @@ static stf_status xauth_send_status(struct state *st, int status)
 	/* Set up a retransmission event, half a minute hence */
 	/* Schedule retransmit before sending, to avoid race with master thread */
 	delete_event(st);
-	start_retransmits(st, EVENT_v1_RETRANSMIT);
+	start_retransmits(st);
 
 	/* Transmit */
 	record_and_send_v1_ike_msg(st, &reply, "XAUTH: status");
@@ -1059,17 +1060,12 @@ static bool do_file_authentication(struct state *st, const char *name,
 		    (connectionname == NULL || streq(connectionname, connname)))
 		{
 			const char *cp;
-#if defined(__CYGWIN32__)
-			/* password is in the clear! */
-			cp = password;
-#else
 			/*
 			 * keep the passwords using whatever utilities
 			 * we have NOTE: crypt() may not be
 			 * thread-safe
 			 */
 			cp = crypt(password, passwdhash);
-#endif
 			win = cp != NULL && streq(cp, passwdhash);
 
 			DBG(DBG_PRIVATE,
@@ -1207,10 +1203,8 @@ static void xauth_launch_authent(struct state *st,
 
 	/*
 	 * For XAUTH, we're flipping between retransmitting the packet
-	 * in the retransmit slot, and the XAUTH packet, two
-	 * alternative events can be outstanding.
-	 *
-	 * Cancel both.
+	 * in the retransmit slot, and the XAUTH packet.
+	 * Two alternative events can be outstanding. Cancel both.
 	 */
 	delete_event(st);
 	delete_state_event(st, &st->st_send_xauth_event);
@@ -2163,11 +2157,11 @@ static stf_status xauth_client_resp(struct state *st,
 							if (cptr != NULL)
 								*cptr = '\0';
 						}
-						clonereplacechunk(
-							st->st_xauth_password,
-							xauth_password,
-							strlen(xauth_password),
-							"XAUTH password");
+						/* see above */
+						pexpect(st->st_xauth_password.ptr == NULL);
+						st->st_xauth_password = clone_bytes_as_chunk(xauth_password,
+											     strlen(xauth_password),
+											     "XAUTH password");
 						discard_pw = TRUE;
 					}
 

@@ -51,7 +51,6 @@
 #include "demux.h"      /* needs packet.h */
 #include "kernel.h"     /* needs connections.h */
 #include "log.h"
-#include "cookie.h"
 #include "server.h"
 #include "spdb.h"
 #include "timer.h"
@@ -139,20 +138,28 @@ void unpack_KE_from_helper(struct state *st,
  *  Diffie-Hellman group enforced, if necessary, by pre-pending the
  *  value with zeros.
  */
-notification_t accept_KE(chunk_t *dest, const char *val_name,
-			 const struct oakley_group_desc *gr,
-			 pb_stream *pbs)
+bool accept_KE(chunk_t *dest, const char *val_name,
+	       const struct oakley_group_desc *gr,
+	       struct payload_digest *ke_pd)
 {
+	if (ke_pd == NULL) {
+		loglog(RC_LOG_SERIOUS, "KE missing");
+		return false;
+	}
+	pb_stream *pbs = &ke_pd->pbs;
 	if (pbs_left(pbs) != gr->bytes) {
 		loglog(RC_LOG_SERIOUS,
 		       "KE has %u byte DH public value; %u required",
 		       (unsigned) pbs_left(pbs), (unsigned) gr->bytes);
 		/* XXX Could send notification back */
-		return INVALID_KEY_INFORMATION;
+		return false;
 	}
-	clonereplacechunk(*dest, pbs->cur, pbs_left(pbs), val_name);
-	DBG_cond_dump_chunk(DBG_CRYPT, "DH public value received:\n", *dest);
-	return NOTHING_WRONG;
+	free_chunk_contents(dest); /* XXX: ever needed? */
+	*dest = clone_in_pbs_left_as_chunk(pbs, val_name);
+	if (DBGP(DBG_CRYPT)) {
+		DBG_dump_chunk("DH public value received:\n", *dest);
+	}
+	return true;
 }
 
 void unpack_nonce(chunk_t *n, const struct pluto_crypto_req *r)
@@ -180,23 +187,11 @@ bool ikev1_ship_nonce(chunk_t *n, struct pluto_crypto_req *r,
 static initiator_function *pick_initiator(struct connection *c,
 					  lset_t policy)
 {
-	if ((policy & POLICY_IKEV2_PROPOSE) &&
-	    (policy & c->policy & POLICY_IKEV2_ALLOW) &&
-	    !c->failed_ikev2) {
-		/* we may try V2, and we haven't failed */
+	if (policy & c->policy & POLICY_IKEV2_ALLOW) {
 		return ikev2_parent_outI1;
-	} else if (policy & c->policy & POLICY_IKEV1_ALLOW) {
+	} else {
 		/* we may try V1; Aggressive or Main Mode? */
 		return (policy & POLICY_AGGRESSIVE) ? aggr_outI1 : main_outI1;
-	} else {
-		libreswan_log("Neither IKEv1 nor IKEv2 allowed: %s%s",
-			c->failed_ikev2? "previous V2 failure, " : "",
-			bitnamesof(sa_policy_bit_names, policy & c->policy));
-		/*
-		 * tried IKEv2, if allowed, and failed,
-		 * and tried IKEv1, if allowed, and got nowhere.
-		 */
-		return NULL;
 	}
 }
 
@@ -283,12 +278,7 @@ void ipsecdoi_initiate(fd_t whack_sock,
  */
 void ipsecdoi_replace(struct state *st, unsigned long try)
 {
-	if (IS_PARENT_SA_ESTABLISHED(st) &&
-	    !LIN(POLICY_REAUTH, st->st_connection->policy)) {
-		libreswan_log("initiate rekey of IKEv2 CREATE_CHILD_SA IKE Rekey");
-		/* ??? why does this not need whack socket fd? */
-		ikev2_rekey_ike_start(st);
-	} else if (IS_IKE_SA(st)) {
+	if (IS_IKE_SA(st)) {
 		/* start from policy in connection */
 
 		struct connection *c = st->st_connection;
@@ -341,6 +331,7 @@ void ipsecdoi_replace(struct state *st, unsigned long try)
 
 		if (!st->st_ikev2)
 			passert(HAS_IPSEC_POLICY(policy));
+
 		ipsecdoi_initiate(dup_any(st->st_whack_sock), st->st_connection,
 			policy, try, st->st_serialno
 #ifdef HAVE_LABELED_IPSEC
@@ -504,9 +495,9 @@ void initialize_new_state(struct state *st,
 void send_delete(struct state *st)
 {
 	if (IMPAIR(SEND_NO_DELETE)) {
-		DBGF(DBG_CONTROL, "IMPAIR: impair-send-no-delete set - not sending Delete/Notify");
+		dbg("IMPAIR: impair-send-no-delete set - not sending Delete/Notify");
 	} else {
-		DBGF(DBG_CONTROL, "#%lu send %s delete notification for %s",
+		dbg("#%lu send %s delete notification for %s",
 		     st->st_serialno, st->st_ikev2 ? "IKEv2": "IKEv1",
 		     st->st_state_name);
 		st->st_ikev2 ? send_v2_delete(st) : send_v1_delete(st);
@@ -543,10 +534,10 @@ void lswlog_child_sa_established(struct lswlog *buf, struct state *st)
 		bool esn = st->st_esp.attrs.transattrs.esn_enabled;
 
 		if (nat)
-			DBGF(DBG_NATT, "NAT-T: NAT Traversal detected - their IKE port is '%d'",
+			dbg("NAT-T: NAT Traversal detected - their IKE port is '%d'",
 			     c->spd.that.host_port);
 
-		DBGF(DBG_NATT, "NAT-T: encaps is '%s'",
+		dbg("NAT-T: encaps is '%s'",
 		     c->encaps == yna_auto ? "auto" : bool_str(c->encaps == yna_yes));
 
 		lswlogf(buf, "%sESP%s%s%s=>0x%08" PRIx32 " <0x%08" PRIx32 "",
@@ -633,7 +624,8 @@ void lswlog_child_sa_established(struct lswlog *buf, struct state *st)
 		lswlogs(buf, oa);
 	}
 
-	lswlogf(buf, dpd_active_locally(st) ? " DPD=active" : " DPD=passive");
+	lswlogf(buf, (!st->st_ikev2 && !st->hidden_variables.st_peer_supports_dpd) ? " DPD=unsupported" :
+			dpd_active_locally(st) ? " DPD=active" : " DPD=passive");
 
 	if (st->st_xauth_username[0] != '\0') {
 		lswlogs(buf, " username=");

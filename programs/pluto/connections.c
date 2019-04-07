@@ -88,7 +88,8 @@
 #include "crypto.h"
 #include "kernel_netlink.h"
 #include "ip_address.h"
-#include "key.h" /* for SECKEY_DestroyPublicKey */
+#include "af_info.h"
+#include "keyhi.h" /* for SECKEY_DestroyPublicKey */
 
 struct connection *connections = NULL;
 
@@ -323,6 +324,8 @@ void delete_connection(struct connection *c, bool relations)
 	pfreeany(c->policy_label);
 #endif
 	pfreeany(c->dnshostname);
+	pfreeany(c->redirect_to);
+	pfreeany(c->accept_redirect_to);
 
 	/* deal with top spd_route and then the rest */
 
@@ -356,13 +359,15 @@ void delete_connection(struct connection *c, bool relations)
 		alg_info_delref(&c->alg_info_ike->ai);
 		c->alg_info_ike = NULL;
 	}
-	free_ikev2_proposals(&c->ike_proposals);
+	free_ikev2_proposals(&c->v2_ike_proposals);
 
 	if (c->alg_info_esp != NULL) {
 		alg_info_delref(&c->alg_info_esp->ai);
 		c->alg_info_esp = NULL;
 	}
-	free_ikev2_proposals(&c->esp_or_ah_proposals);
+	free_ikev2_proposals(&c->v2_ike_auth_child_proposals);
+	free_ikev2_proposals(&c->v2_create_child_proposals);
+	c->v2_create_child_proposals_default_dh = NULL; /* static pointer */
 
 	pfree(c);
 }
@@ -799,6 +804,11 @@ static void unshare_connection(struct connection *c)
 
 	c->vti_iface = clone_str(c->vti_iface, "connection vti_iface");
 
+	c->redirect_to = clone_str(c->redirect_to,\
+					"connection redirect_to");
+	c->accept_redirect_to = clone_str(c->accept_redirect_to,\
+					"connection accept_redirect_to");
+
 	struct spd_route *sr;
 
 	for (sr = &c->spd; sr != NULL; sr = sr->spd_next) {
@@ -898,7 +908,6 @@ static bool extract_end(struct end *dst, const struct whack_end *src,
 		} else if (!streq(src->ca, "%any")) {
 			err_t ugh;
 
-			dst->ca.ptr = temporary_cyclic_buffer();
 			ugh = atodn(src->ca, &dst->ca);
 			if (ugh != NULL) {
 				libreswan_log(
@@ -1315,15 +1324,15 @@ void add_connection(const struct whack_message *wm)
 		}
 	}
 
-	if ((wm->policy & (POLICY_IKEV2_PROPOSE | POLICY_IKEV2_ALLOW)) == POLICY_IKEV2_PROPOSE) {
-		loglog(RC_FATAL, "Failed to add connection \"%s\": cannot insist on IKEv2 while forbidding it",
+	if (LIN(POLICY_IKEV2_ALLOW, wm->policy) && LIN(POLICY_IKEV1_ALLOW, wm->policy)) {
+		loglog(RC_FATAL, "Failed to add connection \"%s\": connection can only be ikev2=yes or ikev2=no",
 			wm->name);
 		return;
 	}
 
 	if (wm->policy & POLICY_OPPORTUNISTIC) {
-		if ((wm->policy & POLICY_IKEV2_PROPOSE) == LEMPTY) {
-			loglog(RC_FATAL, "Failed to add connection \"%s\": opportunistic connection MUST have ikev2=insist",
+		if ((wm->policy & POLICY_IKEV2_ALLOW) == LEMPTY) {
+			loglog(RC_FATAL, "Failed to add connection \"%s\": opportunistic connection MUST have ikev2=yes",
 				wm->name);
 			return;
 		}
@@ -1376,7 +1385,7 @@ void add_connection(const struct whack_message *wm)
 	} else {
 		/* reject all bad combinations of authby with leftauth=/rightauth= */
 		if (wm->left.authby != AUTH_UNSET || wm->right.authby != AUTH_UNSET) {
-			if ((wm->policy & POLICY_IKEV2_PROPOSE) == LEMPTY) {
+			if ((wm->policy & POLICY_IKEV2_ALLOW) == LEMPTY) {
 				loglog(RC_FATAL,
 					"Failed to add connection \"%s\": leftauth= and rightauth= require ikev2=insist",
 						wm->name);
@@ -1567,7 +1576,7 @@ void add_connection(const struct whack_message *wm)
 				 * magic into pluto proper and instead pass a
 				 * simple boolean.
 				 */
-				.ikev2 = LIN(POLICY_IKEV2_PROPOSE | POLICY_IKEV2_ALLOW, wm->policy),
+				.ikev2 = LIN(POLICY_IKEV2_ALLOW, wm->policy),
 				.alg_is_ok = ike_alg_is_ike,
 				.pfs = LIN(POLICY_PFS, wm->policy),
 				.warning = libreswan_log,
@@ -1618,7 +1627,7 @@ void add_connection(const struct whack_message *wm)
 				 * magic into pluto proper and instead pass a
 				 * simple boolean.
 				 */
-				.ikev2 = LIN(POLICY_IKEV2_PROPOSE | POLICY_IKEV2_ALLOW, wm->policy),
+				.ikev2 = LIN(POLICY_IKEV2_ALLOW, wm->policy),
 				.alg_is_ok = kernel_alg_is_ok,
 				.pfs = LIN(POLICY_PFS, wm->policy),
 				.warning = libreswan_log,
@@ -1693,14 +1702,10 @@ void add_connection(const struct whack_message *wm)
 		}
 
 		{
-			time_t max_ike = IKE_SA_LIFETIME_MAXIMUM;
-			time_t max_ipsec = IPSEC_SA_LIFETIME_MAXIMUM;
-#ifdef FIPS_CHECK
-			if (libreswan_fipsmode()) {
-				/* http://csrc.nist.gov/publications/nistpubs/800-77/sp800-77.pdf */
-				max_ipsec = FIPS_IPSEC_SA_LIFETIME_MAXIMUM;
-			}
-#endif
+			/* http://csrc.nist.gov/publications/nistpubs/800-77/sp800-77.pdf */
+			time_t max_ike = libreswan_fipsmode() ? FIPS_IKE_SA_LIFETIME_MAXIMUM : IKE_SA_LIFETIME_MAXIMUM;
+			time_t max_ipsec = libreswan_fipsmode() ? FIPS_IPSEC_SA_LIFETIME_MAXIMUM : IPSEC_SA_LIFETIME_MAXIMUM;
+
 			if (deltasecs(c->sa_ike_life_seconds) > max_ike) {
 				loglog(RC_LOG_SERIOUS,
 					"IKE lifetime limited to the maximum allowed %jds",
@@ -1739,6 +1744,10 @@ void add_connection(const struct whack_message *wm)
 		c->modecfg_dns = wm->modecfg_dns;
 		c->modecfg_domains = wm->modecfg_domains;
 		c->modecfg_banner = wm->modecfg_banner;
+
+		/* RFC 5685 - IKEv2 Redirect mechanism */
+		c->redirect_to = wm->redirect_to;
+		c->accept_redirect_to = wm->accept_redirect_to;
 
 		/*
 		 * parse mark and mask values form the mark/mask string
@@ -1882,6 +1891,7 @@ void add_connection(const struct whack_message *wm)
 	c->newest_isakmp_sa = SOS_NOBODY;
 	c->newest_ipsec_sa = SOS_NOBODY;
 	c->spd.eroute_owner = SOS_NOBODY;
+	c->temp_vars.num_redirects = 0;
 	/*
 	 * is spd.reqid necessary for all c? CK_INSTANCE or CK_PERMANENT
 	 * need one. Does CK_TEMPLATE need one?
@@ -2651,12 +2661,6 @@ struct connection *route_owner(struct connection *c,
 	for (struct connection *d = connections; d != NULL; d = d->ac_next) {
 		if (!oriented(*d))
 			continue;
-#ifdef KLIPS_MAST
-		/* in mast mode we must also delete the iptables rule */
-		if (kern_interface == USE_MASTKLIPS &&
-		    compatible_overlapping_connections(c, d))
-			continue;
-#endif
 
 		/*
 		 * allow policies different by mark/mask
@@ -2894,10 +2898,12 @@ stf_status ikev2_find_host_connection(struct connection **cp,
 			return STF_DROP; /* technically, this violates the IKEv2 spec that states we must answer */
 		}
 		/* only allow opportunistic for IKEv2 connections */
-		if (LIN(POLICY_OPPORTUNISTIC | POLICY_IKEV2_PROPOSE | POLICY_IKEV2_ALLOW, c->policy)) {
+		if (LIN(POLICY_OPPORTUNISTIC | POLICY_IKEV2_ALLOW, c->policy)) {
+			DBG(DBG_CONTROL, DBG_log("oppo_instantiate"));
 			c = oppo_instantiate(c, him, &c->spd.that.id, &c->spd.this.host_addr, him);
 		} else {
 			/* regular roadwarrior */
+			DBG(DBG_CONTROL, DBG_log("rw_instantiate"));
 			c = rw_instantiate(c, him, NULL, NULL);
 		}
 	} else {
@@ -3458,7 +3464,7 @@ struct connection *refine_host_connection(const struct state *st,
 
 		if (wcpip) {
 			/* been around twice already */
-			DBG(DBG_CONTROL, DBG_log("returning since no better match then original best_found"));
+			DBG(DBG_CONTROL, DBG_log("returning since no better match than original best_found"));
 			return best_found;
 		}
 
@@ -4673,4 +4679,29 @@ uint32_t calculate_sa_prio(const struct connection *c)
 	DBG(DBG_CONTROL, DBG_log("priority calculation of connection \"%s\" is %#" PRIx32,
 		c->name, prio));
 	return prio;
+}
+
+/*
+ * If the connection contains a newer SA, return it.
+ */
+so_serial_t get_newer_sa_from_connection(struct state *st)
+{
+	struct connection *c = st->st_connection;
+	so_serial_t newest;
+
+	if (IS_IKE_SA(st)) {
+		newest = c->newest_isakmp_sa;
+		dbg("picked newest_isakmp_sa #%lu for #%lu",
+		    newest, st->st_serialno);
+	} else {
+		newest = c->newest_ipsec_sa;
+		dbg("picked newest_ipsec_sa #%lu for #%lu",
+		    newest, st->st_serialno);
+	}
+
+	if (newest != SOS_NOBODY && newest > st->st_serialno) {
+		return newest;
+	} else {
+		return SOS_NOBODY;
+	}
 }

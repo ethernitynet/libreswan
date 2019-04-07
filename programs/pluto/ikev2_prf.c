@@ -20,10 +20,6 @@
  *
  */
 
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <errno.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -95,12 +91,8 @@ static void calc_skeyseed_v2(struct pcr_dh_v2 *sk,
 	/* this doesn't take any memory, it's just moving pointers around */
 	chunk_t ni;
 	chunk_t nr;
-	chunk_t spii;
-	chunk_t spir;
 	setchunk_from_wire(ni, sk, &sk->ni);
 	setchunk_from_wire(nr, sk, &sk->nr);
-	setchunk_from_wire(spii, sk, &sk->icookie);
-	setchunk_from_wire(spir, sk, &sk->rcookie);
 
 	passert(sk->prf != NULL);
 	DBG(DBG_CONTROLMORE,
@@ -140,7 +132,7 @@ static void calc_skeyseed_v2(struct pcr_dh_v2 *sk,
 	int integ_size = sk->integ ? sk->integ->integ_keymat_size : 0;
 	size_t total_keysize = skd_bytes + 2*skp_bytes + 2*key_size + 2*salt_size + 2*integ_size;
 	PK11SymKey *finalkey = ikev2_ike_sa_keymat(sk->prf, skeyseed_k,
-						   ni, nr, spii, spir,
+						   ni, nr, &sk->ike_spis,
 						   total_keysize);
 	release_symkey(__func__, "skeyseed_k", &skeyseed_k);
 
@@ -190,7 +182,6 @@ static void calc_skeyseed_v2(struct pcr_dh_v2 *sk,
 	SK_pr_k = key_from_symkey_bytes(finalkey, next_byte, skp_bytes);
 	/* store copy of SK_pr_k for later use in authnull */
 	chunk_SK_pr = chunk_from_symkey("chunk_SK_pr", SK_pr_k);
-	next_byte += skp_bytes;	/* next_byte not subsequently used */
 
 	DBG(DBG_CRYPT,
 	    DBG_log("NSS ikev2: finished computing individual keys for IKEv2 SA"));
@@ -381,13 +372,13 @@ PK11SymKey *ikev2_ike_sa_rekey_skeyseed(const struct prf_desc *prf_desc,
 PK11SymKey *ikev2_ike_sa_keymat(const struct prf_desc *prf_desc,
 				PK11SymKey *skeyseed,
 				const chunk_t Ni, const chunk_t Nr,
-				const chunk_t SPIi, const chunk_t SPIr,
+				const ike_spis_t *SPIir,
 				size_t required_bytes)
 {
 	PK11SymKey *data = symkey_from_chunk("data", Ni);
 	append_symkey_chunk(&data, Nr);
-	append_symkey_chunk(&data, SPIi);
-	append_symkey_chunk(&data, SPIr);
+	append_symkey_bytes(&data, &SPIir->initiator, sizeof(SPIir->initiator));
+	append_symkey_bytes(&data, &SPIir->responder, sizeof(SPIir->responder));
 	PK11SymKey *prfplus = ikev2_prfplus(prf_desc,
 					    skeyseed, data,
 					    required_bytes);

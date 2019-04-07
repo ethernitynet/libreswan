@@ -74,7 +74,7 @@ static const struct keyword_enum_value kw_keyexchange_values[] = {
 static const struct keyword_enum_values kw_keyexchange_list = VALUES_INITIALIZER(kw_keyexchange_values);
 
 /*
- * Values for Four-State options, such as ikev2
+ * Values for Four-State options, used for ppk=
  */
 static const struct keyword_enum_value kw_fourvalued_values[] = {
 	{ "never",     fo_never  },
@@ -233,7 +233,6 @@ static const struct keyword_enum_values kw_rsasigkey_list = VALUES_INITIALIZER(k
 static const struct keyword_enum_value kw_proto_stack_list[] = {
 	{ "none",         NO_KERNEL },
 	{ "klips",        USE_KLIPS },
-	{ "mast",         USE_MASTKLIPS },
 	{ "auto",         USE_NETKEY }, /* auto now means netkey */
 	{ "netkey",       USE_NETKEY },
 	{ "native",       USE_NETKEY },
@@ -419,6 +418,8 @@ const struct keyword_def ipsec_conf_keywords[] = {
   { "uniqueids",  kv_config,  kt_bool,  KBF_UNIQUEIDS, NULL, NULL, },
   { "shuntlifetime",  kv_config,  kt_time,  KBF_SHUNTLIFETIME, NULL, NULL, },
   { "overridemtu",  kv_config,  kt_number,  KBF_OVERRIDEMTU, NULL, NULL, },
+  { "global-redirect", kv_config, kt_string, KSF_GLOBAL_REDIRECT, NULL, NULL },
+  { "global-redirect-to", kv_config, kt_string, KSF_GLOBAL_REDIRECT_TO, NULL, NULL, },
 
   { "crl-strict",  kv_config,  kt_bool,  KBF_CRL_STRICT, NULL, NULL, },
   { "crl_strict",  kv_config | kv_alias,  kt_bool,  KBF_CRL_STRICT, NULL, NULL, },  /* obsolete _ */
@@ -538,6 +539,10 @@ const struct keyword_def ipsec_conf_keywords[] = {
   { "mobike",  kv_conn,  kt_bool,  KBF_MOBIKE, NULL, NULL, },
   { "narrowing",  kv_conn,  kt_bool,  KBF_IKEv2_ALLOW_NARROWING, NULL, NULL, },
   { "pam-authorize",  kv_conn,  kt_bool,  KBF_IKEv2_PAM_AUTHORIZE, NULL, NULL, },
+  { "send-redirect",  kv_conn,  kt_enum,  KBF_SEND_REDIRECT, &kw_yna_list, NULL, },
+  { "redirect-to",  kv_conn,  kt_string,  KSCF_REDIRECT_TO, NULL, NULL, },
+  { "accept-redirect",  kv_conn,  kt_enum, KBF_ACCEPT_REDIRECT, &kw_yna_list, NULL, },
+  { "accept-redirect-to",  kv_conn,  kt_string, KSCF_ACCEPT_REDIRECT_TO, NULL, NULL, },
   { "sareftrack",  kv_conn | kv_processed,  kt_enum,  KBF_SAREFTRACK,  &kw_sareftrack_list, NULL, },
   { "pfs",  kv_conn,  kt_bool,  KBF_PFS, NULL, NULL, },
 

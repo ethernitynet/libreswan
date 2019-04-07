@@ -18,11 +18,6 @@
 # error this file should only be compiled when DNSSEC is defined
 #endif
 
-#include <stdio.h>
-#include <string.h>
-#include <stddef.h>
-#include <stdlib.h>
-#include <errno.h>
 #include <arpa/inet.h> /* for inet_ntop */
 #include <arpa/nameser.h>
 #include <ldns/ldns.h>	/* from ldns-devel */
@@ -556,7 +551,8 @@ static void idi_ipseckey_fetch_tail(struct state *st, bool err)
 		stf = ikev2_parent_inI2outR2_id_tail(md);
 	}
 
-	complete_v2_state_transition(&md, stf);
+	/* replace (*mdp)->st with st ... */
+	complete_v2_state_transition(md->st, &md, stf);
 	release_any_md(&md);
 	reset_globals();
 }

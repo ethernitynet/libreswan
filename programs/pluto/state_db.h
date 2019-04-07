@@ -1,6 +1,6 @@
 /* State table indexed by serialno, for libreswan
  *
- * Copyright (C) 2017 Andrew Cagney
+ * Copyright (C) 2017-2018 Andrew Cagney
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -13,8 +13,10 @@
  * for more details.
  */
 
-#ifndef _state_db_h_
-#define _state_db_h_
+#ifndef STATE_DB_H
+#define STATE_DB_H
+
+#include "ike_spi.h"
 
 struct state;
 struct list_entry;
@@ -47,8 +49,9 @@ extern struct list_head serialno_list_head;
  * required!
  */
 
-extern struct list_head *icookie_slot(const uint8_t *icookie);
-struct list_head *cookies_slot(const uint8_t *icookie,
-			       const uint8_t *rcookie);
+struct list_head *ike_initiator_spi_slot(const ike_spi_t *initiator);
+struct list_head *ike_spis_slot(const ike_spis_t *spis);
+struct list_head *ike_spi_slot(const ike_spi_t *initiator,
+			       const ike_spi_t *responder);
 
 #endif

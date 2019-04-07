@@ -39,6 +39,7 @@
 #include "x509.h"
 #include <cert.h>
 #include "certs.h"
+#include "af_info.h"
 
 /*
  * Note that there may be as many as six IDs that are temporary at
@@ -81,9 +82,6 @@ err_t atoid(char *src, struct id *id, bool oe_only)
 	} else if (!oe_only && strchr(src, '=') != NULL) {
 		/* we interpret this as an ASCII X.501 ID_DER_ASN1_DN */
 		id->kind = ID_DER_ASN1_DN;
-		/* assign temporary buffer */
-		id->name.ptr = temporary_cyclic_buffer();
-		id->name.len = 0;
 		/*
 		 * convert from LDAP style or openssl x509 -subject style
 		 * to ASN.1 DN
@@ -403,8 +401,7 @@ bool same_id(const struct id *a, const struct id *b)
 		return same_dn(a->name, b->name);
 
 	case ID_KEY_ID:
-		return a->name.len == b->name.len &&
-			memeq(a->name.ptr, b->name.ptr, a->name.len);
+		return chunk_eq(a->name, b->name);
 
 	default:
 		bad_case(a->kind);
@@ -543,7 +540,7 @@ static bool match_dn_unordered(const chunk_t a, const chunk_t b, int *const wild
 	dntoa(bbuf, ASN1_BUF_LEN, b);
 
 	DBG(DBG_CONTROL,
-	    DBG_log("%s A: %s, B: %s", __FUNCTION__, abuf, bbuf));
+	    DBG_log("%s A: %s, B: %s", __func__, abuf, bbuf));
 
 	CERTName *const a_name = CERT_AsciiToName(abuf);
 	CERTName *const b_name = CERT_AsciiToName(bbuf);
@@ -576,7 +573,7 @@ static bool match_dn_unordered(const chunk_t a, const chunk_t b, int *const wild
 	CERT_DestroyName(b_name);
 	DBG(DBG_CONTROL,
 	    DBG_log("%s matched: %d, rdn_num: %d, wc %d",
-		    __FUNCTION__,
+		    __func__,
 		    matched,
 		    rdn_num,
 		    wildcards ? *wildcards : 0));
@@ -586,12 +583,15 @@ static bool match_dn_unordered(const chunk_t a, const chunk_t b, int *const wild
 
 bool same_dn_any_order(chunk_t a, chunk_t b)
 {
-	bool ret = match_dn(a, b, NULL);
+	bool ret = same_dn(a, b);
 
 	if (!ret) {
-		DBG(DBG_CONTROL,
-		    DBG_log("%s: not an exact match, now checking any RDN order",
-				 __FUNCTION__));
+		DBG(DBG_CONTROL, {
+			DBG_log("%s: not an exact match, now checking any RDN order",
+				 __func__);
+			// DBG_dump_chunk("a", a);
+			// DBG_dump_chunk("b", b);
+		});
 		ret = match_dn_unordered(a, b, NULL);
 	}
 
@@ -605,7 +605,7 @@ static bool match_dn_any_order_wild(chunk_t a, chunk_t b, int *wildcards)
 	if (!ret) {
 		DBG(DBG_CONTROL,
 		    DBG_log("%s: not an exact match, now checking any RDN order with %d wildcards",
-				 __FUNCTION__, *wildcards));
+				 __func__, *wildcards));
 		/* recount wildcards */
 		*wildcards = 0;
 		ret = match_dn_unordered(a, b, wildcards);

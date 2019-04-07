@@ -231,6 +231,19 @@ struct sa_marks {
 	struct sa_mark out;
 };
 
+/* this struct will be used for
+ * storing ephemeral stuff, that doesn't
+ * need i.e. to be stored to connection
+ * .conf files.
+ */
+struct ephemeral_variables {
+	/* RFC 5685 - IKEv2 Redirect Mechanism */
+	int num_redirects;
+	realtime_t first_redirect_time;
+	ip_address redirect_ip;		/* where to redirect */
+	ip_address old_gw_address;	/* address of old gateway */
+};
+
 struct connection {
 	char *name;
 	char *foodgroup;
@@ -302,7 +315,7 @@ struct connection {
 	enum connection_kind kind;
 	const struct iface_port *interface;	/* filled in iff oriented */
 
-	bool failed_ikev2;	/* tried ikev2, but failed */
+	struct ephemeral_variables temp_vars;
 
 	so_serial_t		/* state object serial number */
 		newest_isakmp_sa,
@@ -327,9 +340,23 @@ struct connection {
 	 * Since they are allocated on-demand so there's no need to
 	 * worry about copying them when a connection object gets
 	 * cloned.
+	 *
+	 * For a child SA, two different proposals are used:
+	 *
+	 * - during the IKE_AUTH exchange a proposal stripped of any
+	 *   DH (it uses keying material from the IKE SA's SKSEED).
+	 *
+	 * - during a CREATE_CHILD_SA exchange, a mash up of the
+	 *   proposal and the IKE SA's DH algorithm.  Since the IKE
+	 *   SA's DH can change, it too is saved so a rebuild can be
+	 *   triggered.
+	 *
+	 * XXX: has to be a better way?
 	 */
-	struct ikev2_proposals *ike_proposals;
-	struct ikev2_proposals *esp_or_ah_proposals;
+	struct ikev2_proposals *v2_ike_proposals;
+	struct ikev2_proposals *v2_ike_auth_child_proposals;
+	struct ikev2_proposals *v2_create_child_proposals;
+	const struct oakley_group_desc *v2_create_child_proposals_default_dh;
 
 	/* host_pair linkage */
 	struct host_pair *host_pair;
@@ -346,11 +373,15 @@ struct connection {
 	char *modecfg_domains;
 	char *modecfg_banner;
 
-	uint8_t metric;	/* metric for tunnel routes */
+	uint32_t metric;	/* metric for tunnel routes */
 	uint16_t connmtu;	/* mtu for tunnel routes */
 	uint32_t statsval;	/* track what we have told statsd */
 	uint16_t nflog_group;	/* NFLOG group - 0 means disabled  */
 	msgid_t ike_window;     /* IKE v2 window size 7296#section-2.3 */
+
+	char *redirect_to;        /* RFC 5685 */
+	char *accept_redirect_to;
+
 };
 
 #define oriented(c) ((c).interface != NULL)
@@ -546,5 +577,7 @@ extern void liveness_action(struct connection *c, const bool ikev2);
 extern bool idr_wildmatch(const struct connection *c, const struct id *b);
 
 extern uint32_t calculate_sa_prio(const struct connection *c);
+
+so_serial_t get_newer_sa_from_connection(struct state *st);
 
 #endif

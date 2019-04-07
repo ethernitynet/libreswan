@@ -242,6 +242,17 @@ NSPR_LDFLAGS ?= -lnspr4
 # Use nss copy for CERT_CompareAVA
 # See https://bugzilla.mozilla.org/show_bug.cgi?id=1336487
 NSS_REQ_AVA_COPY?=true
+ifeq ($(NSS_REQ_AVA_COPY),true)
+NSSFLAGS+=-DNSS_REQ_AVA_COPY
+endif
+
+# Use nss IPsec profile for X509 validation. This is less restrictive
+# on EKU's. Enable when using NSS >= 3.41 (or RHEL-7.6 / RHEL-8.0)
+# See https://bugzilla.mozilla.org/show_bug.cgi?id=1252891
+NSS_HAS_IPSEC_PROFILE?=false
+ifeq ($(NSS_HAS_IPSEC_PROFILE),true)
+NSSFLAGS+=-DNSS_IPSEC_PROFILE
+endif
 
 # Use a local copy of xfrm.h. This can be needed on older systems
 # that do not ship linux/xfrm.h, or when the shipped version is too
@@ -409,7 +420,6 @@ export OBJDIRTOP
 
 ### paths within the source tree
 
-KLIPSINC=${LIBRESWANSRCDIR}/linux/include
 KLIPSSRCDIR=${LIBRESWANSRCDIR}/linux/net/ipsec
 
 LIBSWANDIR=${LIBRESWANSRCDIR}/lib/libswan
