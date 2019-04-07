@@ -473,9 +473,15 @@ for ipt in ("iptables", "ip6tables"):
     subprocess.getoutput("%s -A LOGDROP -j DROP" % ipt)
 
 # final prep - this kills any running userland
-subprocess.call(["systemctl", "stop", "ipsec"])
+if os.path.isfile("/usr/bin/systemctl"):
+    subprocess.call(["systemctl", "stop", "ipsec"])
+else:
+    subprocess.call(["ipsec", "stop"])
 # for some reason this fails to stop strongswan?
-subprocess.call(["systemctl", "stop", "strongswan"])
+if os.path.isfile("/usr/bin/systemctl"):
+    subprocess.call(["systemctl", "stop", "strongswan"])
+else:
+    subprocess.call(["service", "strongswan", "stop"])
 # python has no pidof - just outsource to the shell, thanks python!
 for dname in ( "pluto", "charon", "starter", "iked", "racoon2-spmd", "racoon2-iked"):
     try:
