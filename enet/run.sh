@@ -4,9 +4,8 @@ set -x
 
 ACENIC_ID=${1:-0}
 ACENIC_PORT=${2:-104}
-HOST_VPN_DIR=${3:-/tmp/enet-vpn-gw}
-IMG_DOMAIN=${4:-local}
-LIBRESWAN_VERSION=${5:-v3.27}
+IMG_DOMAIN=${3:-local}
+LIBRESWAN_VERSION=${4:-v3.27}
 
 docker volume rm $(docker volume ls -qf dangling=true)
 #docker network rm $(docker network ls | grep "bridge" | awk '/ / { print $1 }')
@@ -17,6 +16,7 @@ docker rm $(docker ps -qa --no-trunc --filter "status=exited")
 DOCKER_INST="enet${ACENIC_ID}_libreswan${ACENIC_PORT}"
 VPN_SHARED_DIR="/shared/enet${ACENIC_ID}-vpn"
 LIBRESWAN_SHARED_DIR="${VPN_SHARED_DIR}/$DOCKER_INST"
+HOST_VPN_DIR=/tmp/enet-vpn-gw
 HOST_SHARED_DIR=${HOST_VPN_DIR}${LIBRESWAN_SHARED_DIR}
 mkdir -p ${HOST_SHARED_DIR}/conns
 
@@ -24,6 +24,17 @@ case ${IMG_DOMAIN} in
 	"hub")
 	IMG_TAG=ethernity/libreswan:$LIBRESWAN_VERSION
 	docker pull $IMG_TAG
+	;;
+	"testing")
+	IMG_TAG=testing/libreswan:$LIBRESWAN_VERSION
+	LIBRESWAN_REPO="https://github.com/ethernitynet/libreswan.git"
+	LIBRESWAN_TEST_DIR=/
+	docker build \
+		-t $IMG_TAG \
+		--build-arg IMG_LIBRESWAN_REPO=$LIBRESWAN_REPO \
+		--build-arg IMG_LIBRESWAN_VERSION=$LIBRESWAN_VERSION \
+		--build-arg IMG_LIBRESWAN_TEST_DIR=$LIBRESWAN_TEST_DIR \
+		./
 	;;
 	*)
 	IMG_TAG=local/libreswan:$LIBRESWAN_VERSION
@@ -48,8 +59,6 @@ docker run \
 	--env DOCKER_INST=$DOCKER_INST \
 	--hostname=$DOCKER_INST \
 	--name=$DOCKER_INST \
-	-v ${HOST_SHARED_DIR}/ipsec.conf:/etc/ipsec.conf \
-	-v ${HOST_SHARED_DIR}/ipsec.secrets:/etc/ipsec.secrets \
 	-v ${HOST_SHARED_DIR}/conns:$LIBRESWAN_SHARED_DIR/conns \
 	$IMG_TAG
 

@@ -3,11 +3,13 @@ LABEL maintainer="Erez Buchnik <erezb@ethernitynet.com>"
 
 ARG IMG_LIBRESWAN_REPO="https://github.com/ethernitynet/libreswan.git"
 ARG IMG_LIBRESWAN_VERSION="v3.27"
+ARG IMG_LIBRESWAN_TEST_DIR="/usr/src/libreswan"
 
 ENV SRC_DIR=/usr/src
 ENV LIBRESWAN_REPO="${IMG_LIBRESWAN_REPO}"
 ENV LIBRESWAN_VERSION=$IMG_LIBRESWAN_VERSION
 ENV LIBRESWAN_DIR=${SRC_DIR}/libreswan
+ENV LIBRESWAN_TEST_DIR=$IMG_LIBRESWAN_TEST_DIR
 
 COPY enet/app/ ${SRC_DIR}/
 ENV BASH_ENV=${SRC_DIR}/docker-entrypoint.sh
@@ -26,5 +28,18 @@ ENV BASH_ENV=${SRC_DIR}/app-entrypoint.sh
 
 RUN libreswan_pull
 RUN libreswan_build
+
+RUN if [[ ${LIBRESWAN_TEST_DIR} != ${LIBRESWAN_DIR} ]]; \
+then \
+/bin/bash -c ' \
+	ln -s ${LIBRESWAN_DIR}/testing ${LIBRESWAN_TEST_DIR}/testing; \
+	apt-get -y install python3 python3-distutils python3-pip vim tcpdump iputils-ping net-tools bridge-utils; \
+	pip3 install pexpect; \
+	echo "LIBRESWAN_TEST_DIR: ${LIBRESWAN_TEST_DIR}"'; \
+else \
+echo "WORKDIR: ${LIBRESWAN_TEST_DIR}"; \
+fi
+	
+WORKDIR $LIBRESWAN_TEST_DIR
 
 #CMD ["/bin/bash", "-c", "ipsec start"]
