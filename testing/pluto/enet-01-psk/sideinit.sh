@@ -30,12 +30,11 @@ ns_exec "ip route replace ${OPPOSITE_GW_IP}/32 via ${GW_IP}"
 
 ns_exec "cp $TESTDIR/$TESTNAME/$SIDE.conf /etc/ipsec.conf"
 ns_exec "cp $TESTDIR/$TESTNAME/$SIDE.secrets /etc/ipsec.secrets"
-#ns_exec "ipsec initnss"
-#ns_exec "ipsec setup start"
-ns_exec "ipsec start"
+ns_exec "ipsec initnss"
+ns_exec "ipsec setup start"
 
-#ns_exec "ip addr replace ${LOCAL_IP}/32 dev lo"
-#ns_exec "ip route replace ${REMOTE_IP}/32 via ${GW_IP} dev eth0 src ${LOCAL_IP}"
+ns_exec "ip addr replace ${LOCAL_IP}/32 dev lo"
+ns_exec "ip route replace ${REMOTE_IP}/32 via ${GW_IP} dev eth0 src ${LOCAL_IP}"
 
 set -x
 
