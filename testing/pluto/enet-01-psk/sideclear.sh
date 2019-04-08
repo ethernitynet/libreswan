@@ -5,6 +5,7 @@ TESTNAME=$2
 SIDE=$3
 OPPOSITE=$4
 NS=ns$SIDE
+GW_MASK=8
 
 ns_exec() {
 
@@ -31,12 +32,12 @@ ns_exec "ip xfrm state flush"
 ns_exec "ip xfrm policy flush"
 ns_exec "ip route del ${LOCAL_IP}/32"
 ns_exec "ip route del ${REMOTE_IP}/32"
-ns_exec "ip route del ${GW_IP}/32"
-ns_exec "ip route del ${OPPOSITE_GW_IP}/32"
+ns_exec "ip route del ${GW_IP}/${GW_MASK}"
+ns_exec "ip route del ${OPPOSITE_GW_IP}/${GW_MASK}"
 ns_exec "ip addr del ${LOCAL_IP}/32 dev lo"
 ns_exec "ip addr del ${REMOTE_IP}/32 dev lo"
-ns_exec "ip addr del ${GW_IP}/32 dev eth0"
-ns_exec "ip addr del ${OPPOSITE_GW_IP}/32 dev eth0"
+ns_exec "ip addr del ${GW_IP}/${GW_MASK} dev eth0"
+ns_exec "ip addr del ${OPPOSITE_GW_IP}/${GW_MASK} dev eth0"
 
 set -x
 

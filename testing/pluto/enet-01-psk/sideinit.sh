@@ -5,6 +5,7 @@ TESTNAME=$2
 SIDE=$3
 OPPOSITE=$4
 NS=ns$SIDE
+GW_MASK=8
 
 ns_exec() {
 
@@ -25,8 +26,8 @@ echo "---------------------------------  INIT  ---------------------------------
 echo "${LOCAL_IP}/32===${GW_IP}<${GW_IP}>...${OPPOSITE_GW_IP}<${OPPOSITE_GW_IP}>===${REMOTE_IP}/32"
 echo "-------------------------------------------------------------------------------------"
 
-ns_exec "ip addr replace ${GW_IP}/32 dev eth0"
-ns_exec "ip route replace ${OPPOSITE_GW_IP}/32 via ${GW_IP}"
+ns_exec "ip addr replace ${GW_IP}/${GW_MASK} dev eth0"
+ns_exec "ip route replace ${OPPOSITE_GW_IP}/${GW_MASK} via ${GW_IP}"
 
 ns_exec "cp $TESTDIR/$TESTNAME/$SIDE.conf /etc/ipsec.conf"
 ns_exec "cp $TESTDIR/$TESTNAME/$SIDE.secrets /etc/ipsec.secrets"
