@@ -33,7 +33,7 @@ RUN if [[ ${LIBRESWAN_TEST_DIR} != ${LIBRESWAN_DIR} ]]; \
 then \
 /bin/bash -c ' \
 	ln -s ${LIBRESWAN_DIR}/testing ${LIBRESWAN_TEST_DIR}/testing; \
-	apt-get -y install python3 python3-distutils python3-pip vim tcpdump iputils-ping net-tools bridge-utils; \
+	apt-get -y install python3 python3-distutils python3-pip vim tcpdump iputils-ping net-tools bridge-utils rsync ipsec-tools; \
 	pip3 install pexpect; \
 	echo "LIBRESWAN_TEST_DIR: ${LIBRESWAN_TEST_DIR}"'; \
 else \
