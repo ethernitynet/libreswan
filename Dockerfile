@@ -38,6 +38,8 @@ then \
 	pip3 install pexpect; \
 	curl -sL https://deb.nodesource.com/setup_10.x | sudo -E bash -; \
 	apt-get -y install nodejs; \
+	libreswan_pull; \
+	libreswan_build; \
 	echo "LIBRESWAN_TEST_DIR: ${LIBRESWAN_TEST_DIR}"'; \
 else \
 echo "WORKDIR: ${LIBRESWAN_TEST_DIR}"; \
