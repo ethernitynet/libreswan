@@ -26,6 +26,7 @@ WORKDIR $LIBRESWAN_DIR
 COPY enet/runtime/ ${SRC_DIR}/runtime/
 ENV BASH_ENV=${SRC_DIR}/app-entrypoint.sh
 
+RUN echo "Building Libreswan:"
 RUN libreswan_pull
 RUN libreswan_build
 
@@ -33,8 +34,10 @@ RUN if [[ ${LIBRESWAN_TEST_DIR} != ${LIBRESWAN_DIR} ]]; \
 then \
 /bin/bash -c ' \
 	ln -s ${LIBRESWAN_DIR}/testing ${LIBRESWAN_TEST_DIR}/testing; \
-	apt-get -y install python3 python3-distutils python3-pip vim tcpdump iputils-ping net-tools bridge-utils rsync ipsec-tools; \
+	apt-get -y install python3 python3-distutils python3-pip vim tcpdump iputils-ping net-tools bridge-utils rsync ipsec-tools gdb curl sudo netcat; \
 	pip3 install pexpect; \
+	curl -sL https://deb.nodesource.com/setup_10.x | sudo -E bash -; \
+	apt-get -y install nodejs; \
 	echo "LIBRESWAN_TEST_DIR: ${LIBRESWAN_TEST_DIR}"'; \
 else \
 echo "WORKDIR: ${LIBRESWAN_TEST_DIR}"; \

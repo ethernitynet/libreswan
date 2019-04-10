@@ -2,8 +2,9 @@
 
 TESTDIR=$1
 TESTNAME=$2
-SIDE=$3
-OPPOSITE=$4
+GW_DEV=$3
+SIDE=$4
+OPPOSITE=$5
 NS=ns$SIDE
 GW_MASK=8
 
@@ -26,7 +27,7 @@ echo "---------------------------------  INIT  ---------------------------------
 echo "${LOCAL_IP}/32===${GW_IP}<${GW_IP}>...${OPPOSITE_GW_IP}<${OPPOSITE_GW_IP}>===${REMOTE_IP}/32"
 echo "-------------------------------------------------------------------------------------"
 
-ns_exec "ip addr replace ${GW_IP}/${GW_MASK} dev eth0"
+ns_exec "ip addr replace ${GW_IP}/${GW_MASK} dev ${GW_DEV}"
 ns_exec "ip route replace ${OPPOSITE_GW_IP}/${GW_MASK} via ${GW_IP}"
 
 ns_exec "cp $TESTDIR/$TESTNAME/$SIDE.conf /etc/ipsec.conf"
@@ -35,7 +36,7 @@ ns_exec "ipsec initnss"
 ns_exec "ipsec setup start"
 
 ns_exec "ip addr replace ${LOCAL_IP}/32 dev lo"
-ns_exec "ip route replace ${REMOTE_IP}/32 via ${GW_IP} dev eth0 src ${LOCAL_IP}"
+ns_exec "ip route replace ${REMOTE_IP}/32 via ${GW_IP} dev ${GW_DEV} src ${LOCAL_IP}"
 
 set -x
 
