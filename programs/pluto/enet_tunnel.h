@@ -22,10 +22,10 @@ typedef struct {
 	unsigned int spi;
 	const char *auth_algo;
 	unsigned int auth_keylen;
-	const char *auth_key;
+	const unsigned char *auth_key;
 	const char *cipher_algo;
 	unsigned int cipher_keylen;
-	const char *cipher_key;
+	const unsigned char *cipher_key;
 } enet_tunnel_config;
 
 void enet_tunnel_config_apply(const char *uri, const enet_tunnel_config *config);
