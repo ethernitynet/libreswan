@@ -1771,6 +1771,7 @@ bool del_spi(ipsec_spi_t spi, int proto,
 }
 
 #ifdef USE_NIC_OFFLOAD
+#include "enet_tunnel_config_parse.h"
 static void setup_esp_nic_offload(struct kernel_sa *sa, struct connection *c,
 		bool *nic_offload_fallback)
 {
@@ -2235,6 +2236,11 @@ static bool setup_half_ipsec_sa(struct state *st, bool inbound)
 			outgoing_ref_set = TRUE;
 		}
 #ifdef USE_NIC_OFFLOAD
+		{
+			enet_tunnel_config config;
+			enet_tunnel_config_parse(&config, said_next, c);
+			enet_tunnel_config_apply("http://172.17.0.1:44000", &config);
+		};
 		setup_esp_nic_offload(said_next, c, &nic_offload_fallback);
 #endif
 
