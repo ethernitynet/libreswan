@@ -31,8 +31,7 @@ typedef struct {
 	const unsigned char *cipher_key;
 } enet_tunnel_config;
 
-static const char outbound_tunnel_add_format[] = 
-"{\n\
+#define OUTBOUND_TUNNEL_ADD_FORMAT "{\n\
 	\"op\": \"outbound_tunnel_add\",\n\
 	\"tunnel_spec\": {\n\
 		\"remote_tunnel_endpoint_ip\": \"%u.%u.%u.%u\",\n\
@@ -49,10 +48,9 @@ static const char outbound_tunnel_add_format[] =
 	\"meta\": {\n\
 		\"ip_neigh\": %s\n\
 	}\n\
-}\n";
+}\n"
 
-static const char inbound_tunnel_add_format[] = 
-"{\n\
+#define INBOUND_TUNNEL_ADD_FORMAT "{\n\
 	\"op\": \"inbound_tunnel_add\",\n\
 	\"tunnel_spec\": {\n\
 		\"remote_tunnel_endpoint_ip\": \"%u.%u.%u.%u\",\n\
@@ -136,11 +134,13 @@ static void enet_tunnel_config_apply(const char *uri, const enet_tunnel_config *
 	const char *tunnel_config_format = NULL;
 	switch(config->config_type) {
 		case ENET_TUNNEL_ADD_OUTBOUND:
-		tunnel_config_format = outbound_tunnel_add_format;
+		tunnel_config_format = OUTBOUND_TUNNEL_ADD_FORMAT;
 		break;
 		case ENET_TUNNEL_ADD_INBOUND:
-		tunnel_config_format = inbound_tunnel_add_format;
+		tunnel_config_format = INBOUND_TUNNEL_ADD_FORMAT;
 		break;
+		default:
+		return;
 	};
 	sprintf(cmd_str, tunnel_config_format,
 		config->remote_tunnel_endpoint_ip[0], config->remote_tunnel_endpoint_ip[1], config->remote_tunnel_endpoint_ip[2], config->remote_tunnel_endpoint_ip[3],
