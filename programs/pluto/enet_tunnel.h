@@ -67,7 +67,7 @@ typedef struct {
 	\"meta\": {\n\
 		\"ip_neigh\": %s\n\
 	}\n\
-}\n";
+}\n"
 
 
 static void enet_tunnel_cmd(const char *uri, const char *cmd) {
@@ -131,28 +131,39 @@ static void enet_tunnel_config_apply(const char *uri, const enet_tunnel_config *
 	char cipher_key_str[1024];
 	char ip_neigh_str[4096];
 		
-	const char *tunnel_config_format = NULL;
 	switch(config->config_type) {
+		
 		case ENET_TUNNEL_ADD_OUTBOUND:
-		tunnel_config_format = OUTBOUND_TUNNEL_ADD_FORMAT;
+		sprintf(cmd_str, OUTBOUND_TUNNEL_ADD_FORMAT,
+			config->remote_tunnel_endpoint_ip[0], config->remote_tunnel_endpoint_ip[1], config->remote_tunnel_endpoint_ip[2], config->remote_tunnel_endpoint_ip[3],
+			config->local_subnet[0], config->local_subnet[1], config->local_subnet[2], config->local_subnet[3], config->local_subnet_mask,
+			config->remote_subnet[0], config->remote_subnet[1], config->remote_subnet[2], config->remote_subnet[3], config->remote_subnet_mask,
+			config->spi,
+			config->auth_algo,
+			config->cipher_algo,
+			key_to_str(auth_key_str, config->auth_key, config->auth_keylen),
+			key_to_str(cipher_key_str, config->cipher_key, config->cipher_keylen),
+			ip_neigh_to_str(ip_neigh_str)
+			);
 		break;
+		
 		case ENET_TUNNEL_ADD_INBOUND:
-		tunnel_config_format = INBOUND_TUNNEL_ADD_FORMAT;
+		sprintf(cmd_str, INBOUND_TUNNEL_ADD_FORMAT,
+			config->remote_tunnel_endpoint_ip[0], config->remote_tunnel_endpoint_ip[1], config->remote_tunnel_endpoint_ip[2], config->remote_tunnel_endpoint_ip[3],
+			config->local_subnet[0], config->local_subnet[1], config->local_subnet[2], config->local_subnet[3], config->local_subnet_mask,
+			config->remote_subnet[0], config->remote_subnet[1], config->remote_subnet[2], config->remote_subnet[3], config->remote_subnet_mask,
+			config->spi,
+			config->auth_algo,
+			config->cipher_algo,
+			key_to_str(auth_key_str, config->auth_key, config->auth_keylen),
+			key_to_str(cipher_key_str, config->cipher_key, config->cipher_keylen),
+			ip_neigh_to_str(ip_neigh_str)
+			);
 		break;
+		
 		default:
 		return;
 	};
-	sprintf(cmd_str, tunnel_config_format,
-		config->remote_tunnel_endpoint_ip[0], config->remote_tunnel_endpoint_ip[1], config->remote_tunnel_endpoint_ip[2], config->remote_tunnel_endpoint_ip[3],
-		config->local_subnet[0], config->local_subnet[1], config->local_subnet[2], config->local_subnet[3], config->local_subnet_mask,
-		config->remote_subnet[0], config->remote_subnet[1], config->remote_subnet[2], config->remote_subnet[3], config->remote_subnet_mask,
-		config->spi,
-		config->auth_algo,
-		config->cipher_algo,
-		key_to_str(auth_key_str, config->auth_key, config->auth_keylen),
-		key_to_str(cipher_key_str, config->cipher_key, config->cipher_keylen),
-		ip_neigh_to_str(ip_neigh_str)
-		);
 	enet_tunnel_cmd(uri, cmd_str);
 };
 
