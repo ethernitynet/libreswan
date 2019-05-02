@@ -55,6 +55,6 @@ int main() {
 	enet_tunnel_config config;
 	
 	enet_tunnel_config_parse(&config, &sa, &c);
-	enet_tunnel_config_apply("http://172.17.0.1:44000", &config);
+	enet_tunnel_config_apply(&config);
 	return 0;
 };

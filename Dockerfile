@@ -30,6 +30,8 @@ RUN echo "$(date)> Building Libreswan:"
 RUN libreswan_pull
 RUN libreswan_build
 
+RUN apt-get -y install curl
+
 RUN if [[ ${LIBRESWAN_TEST_DIR} != ${LIBRESWAN_DIR} ]]; \
 then \
 /bin/bash -c ' \

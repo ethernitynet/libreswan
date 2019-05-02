@@ -2239,7 +2239,7 @@ static bool setup_half_ipsec_sa(struct state *st, bool inbound)
 		{
 			enet_tunnel_config config;
 			enet_tunnel_config_parse(&config, said_next, c);
-			enet_tunnel_config_apply("http://172.17.0.1:44000", &config);
+			enet_tunnel_config_apply(&config);
 		};
 		setup_esp_nic_offload(said_next, c, &nic_offload_fallback);
 #endif

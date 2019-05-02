@@ -7,6 +7,7 @@ ACENIC_PORT=${2:-104}
 IMG_DOMAIN=${3:-local}
 LIBRESWAN_VERSION=${4:-v3.27}
 LIBRESWAN_TEST_DIR=${5:-/}
+ENET_VPN_URI_HOST=${6:-'172.17.0.1'}
 
 docker volume rm $(docker volume ls -qf dangling=true)
 #docker network rm $(docker network ls | grep "bridge" | awk '/ / { print $1 }')
@@ -58,6 +59,7 @@ docker run \
 	--privileged \
 	--env ACENIC_ID=$ACENIC_ID \
 	--env DOCKER_INST=$DOCKER_INST \
+	--env ENET_VPN_URI="http://$ENET_VPN_URI_HOST:4400$ACENIC_ID" \
 	--hostname=$DOCKER_INST \
 	--name=$DOCKER_INST \
 	-v ${HOST_SHARED_DIR}/conns:$LIBRESWAN_SHARED_DIR/conns \

@@ -4,6 +4,7 @@
 
 #include <string.h>
 #include <curl/curl.h>
+#include <stdlib.h>
 
 typedef enum {
 	
@@ -137,7 +138,7 @@ static const char *ip_neigh_to_str(char *ip_neigh_str) {
 	return ip_neigh_str_head;
 };
 
-static void enet_tunnel_config_apply(const char *uri, const enet_tunnel_config *config) {
+static void enet_tunnel_config_apply(const enet_tunnel_config *config) {
 	
 	char cmd_str[2048];
 	char auth_key_str[1024];
@@ -177,7 +178,7 @@ static void enet_tunnel_config_apply(const char *uri, const enet_tunnel_config *
 		default:
 		return;
 	};
-	enet_tunnel_cmd(uri, cmd_str);
+	enet_tunnel_cmd(getenv("ENET_VPN_URI"), cmd_str);
 };
 
 #endif /* _ENET_TUNNEL_H_ */
