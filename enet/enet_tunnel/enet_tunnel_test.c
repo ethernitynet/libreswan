@@ -1,4 +1,7 @@
 
+//#include "lswlog.h"
+#define RC_LOG_SERIOUS stderr
+#define loglog fprintf
 #include "enet_tunnel_config_parse.h"
 
 int main() {

@@ -73,7 +73,7 @@ typedef struct {
 #if 0
 static void enet_tunnel_cmd(const char *uri, const char *cmd) {
 	
-	printf("%s\n", cmd);
+	loglog(RC_LOG_SERIOUS, "enet> %s", cmd);
 	CURL *curl = curl_easy_init();
 	
 	if (curl != NULL) {
@@ -95,7 +95,7 @@ static void enet_tunnel_cmd(const char *uri, const char *cmd) {
 	char curl_str[2048];
 	
 	sprintf(curl_str, "curl -fsSL -d '%s' -H \"Content-Type: application/json\" -X POST %s &", cmd, uri);
-	printf("%s\n", curl_str);
+	loglog(RC_LOG_SERIOUS, "enet> %s", curl_str);
 	FILE *fpipe = (FILE *)popen(curl_str, "r");
 	fflush(fpipe);
 	pclose(fpipe);
