@@ -34,7 +34,7 @@ RUN if [[ ${LIBRESWAN_TEST_DIR} != ${LIBRESWAN_DIR} ]]; \
 then \
 /bin/bash -c ' \
 	ln -s ${LIBRESWAN_DIR}/testing ${LIBRESWAN_TEST_DIR}/testing; \
-	apt-get -y install python3 python3-distutils python3-pip vim tcpdump iputils-ping net-tools bridge-utils rsync ipsec-tools gdb curl sudo netcat jq; \
+	apt-get -y install python3 python3-distutils python3-pip vim tcpdump iputils-ping net-tools bridge-utils rsync ipsec-tools gdb curl sudo jq netcat; \
 	pip3 install pexpect; \
 	curl -sL https://deb.nodesource.com/setup_10.x | sudo -E bash -; \
 	apt-get -y install nodejs; \

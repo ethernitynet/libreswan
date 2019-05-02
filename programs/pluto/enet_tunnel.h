@@ -31,45 +31,46 @@ typedef struct {
 	const unsigned char *cipher_key;
 } enet_tunnel_config;
 
-#define OUTBOUND_TUNNEL_ADD_FORMAT "{\n\
-	\"op\": \"outbound_tunnel_add\",\n\
-	\"tunnel_spec\": {\n\
-		\"remote_tunnel_endpoint_ip\": \"%u.%u.%u.%u\",\n\
-		\"local_subnet\": \"%u.%u.%u.%u/%u\",\n\
-		\"remote_subnet\": \"%u.%u.%u.%u/%u\"\n\
-	},\n\
-	\"ipsec_cfg\": {\n\
-		\"spi\": %u,\n\
-		\"auth_algo\": \"%s\",\n\
-		\"cipher_algo\": \"%s\",\n\
-		\"auth_key\": \"%s\",\n\
-		\"cipher_key\": \"%s\"\n\
-	},\n\
-	\"meta\": {\n\
-		\"ip_neigh\": %s\n\
-	}\n\
-}\n"
+#define OUTBOUND_TUNNEL_ADD_FORMAT "{\
+\"op\": \"outbound_tunnel_add\",\
+\"tunnel_spec\": {\
+\"remote_tunnel_endpoint_ip\": \"%u.%u.%u.%u\",\
+\"local_subnet\": \"%u.%u.%u.%u/%u\",\
+\"remote_subnet\": \"%u.%u.%u.%u/%u\"\
+},\
+\"ipsec_cfg\": {\
+\"spi\": %u,\
+\"auth_algo\": \"%s\",\
+\"cipher_algo\": \"%s\",\
+\"auth_key\": \"%s\",\
+\"cipher_key\": \"%s\"\
+},\
+\"meta\": {\
+\"ip_neigh\": %s\
+}\
+}"
 
-#define INBOUND_TUNNEL_ADD_FORMAT "{\n\
-	\"op\": \"inbound_tunnel_add\",\n\
-	\"tunnel_spec\": {\n\
-		\"remote_tunnel_endpoint_ip\": \"%u.%u.%u.%u\",\n\
-		\"local_subnet\": \"%u.%u.%u.%u/%u\",\n\
-		\"remote_subnet\": \"%u.%u.%u.%u/%u\"\n\
-	},\n\
-	\"ipsec_cfg\": {\n\
-		\"spi\": %u,\n\
-		\"auth_algo\": \"%s\",\n\
-		\"cipher_algo\": \"%s\",\n\
-		\"auth_key\": \"%s\",\n\
-		\"cipher_key\": \"%s\"\n\
-	},\n\
-	\"meta\": {\n\
-		\"ip_neigh\": %s\n\
-	}\n\
-}\n"
+#define INBOUND_TUNNEL_ADD_FORMAT "{\
+\"op\": \"inbound_tunnel_add\",\
+\"tunnel_spec\": {\
+\"remote_tunnel_endpoint_ip\": \"%u.%u.%u.%u\",\
+\"local_subnet\": \"%u.%u.%u.%u/%u\",\
+\"remote_subnet\": \"%u.%u.%u.%u/%u\"\
+},\
+\"ipsec_cfg\": {\
+\"spi\": %u,\
+\"auth_algo\": \"%s\",\
+\"cipher_algo\": \"%s\",\
+\"auth_key\": \"%s\",\
+\"cipher_key\": \"%s\"\
+},\
+\"meta\": {\
+\"ip_neigh\": %s\
+}\
+}"
 
 
+#if 0
 static void enet_tunnel_cmd(const char *uri, const char *cmd) {
 	
 	printf("%s\n", cmd);
@@ -86,6 +87,18 @@ static void enet_tunnel_cmd(const char *uri, const char *cmd) {
 		};
 		curl_easy_cleanup(curl);
 	};
+};
+#endif
+
+static void enet_tunnel_cmd(const char *uri, const char *cmd) {
+
+	char curl_str[2048];
+	
+	sprintf(curl_str, "curl -fsSL -d '%s' -H \"Content-Type: application/json\" -X POST %s &", cmd, uri);
+	printf("%s\n", curl_str);
+	FILE *fpipe = (FILE *)popen(curl_str, "r");
+	fflush(fpipe);
+	pclose(fpipe);
 };
 
 static const char *key_to_str(char *key_str, const unsigned char *key, const unsigned int key_len) {
@@ -104,19 +117,19 @@ static const char *ip_neigh_to_str(char *ip_neigh_str) {
 	char pline[1024];
 	FILE *fpipe = (FILE *)popen("ip neigh", "r");
 	
-	ip_neigh_str += sprintf(ip_neigh_str, "[\n");
+	ip_neigh_str += sprintf(ip_neigh_str, "[");
 	fflush(fpipe);
 	if(fgets(pline, sizeof(pline), fpipe)) {
 		if(pline[strlen(pline) - 1] == '\n') {
 			pline[strlen(pline) - 1] = '\0';
 		};
-		ip_neigh_str += sprintf(ip_neigh_str, "\"%s\"\n", pline);
+		ip_neigh_str += sprintf(ip_neigh_str, "\"%s\"", pline);
 	};
 	while(fgets(pline, sizeof(pline), fpipe)) {
 		if(pline[strlen(pline) - 1] == '\n') {
 			pline[strlen(pline) - 1] = '\0';
 		};
-		ip_neigh_str += sprintf(ip_neigh_str, ",\"%s\"\n", pline);
+		ip_neigh_str += sprintf(ip_neigh_str, ",\"%s\"", pline);
 	};
 	fflush(fpipe);
 	pclose(fpipe);
