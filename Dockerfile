@@ -26,7 +26,7 @@ WORKDIR $LIBRESWAN_DIR
 COPY enet/runtime/ ${SRC_DIR}/runtime/
 ENV BASH_ENV=${SRC_DIR}/app-entrypoint.sh
 
-RUN echo "Building Libreswan:"
+RUN echo "$(date)> Building Libreswan:"
 RUN libreswan_pull
 RUN libreswan_build
 
@@ -46,5 +46,7 @@ echo "WORKDIR: ${LIBRESWAN_TEST_DIR}"; \
 fi
 	
 WORKDIR $LIBRESWAN_TEST_DIR
+
+RUN apt-get -y install jq
 
 #CMD ["/bin/bash", "-c", "ipsec start"]

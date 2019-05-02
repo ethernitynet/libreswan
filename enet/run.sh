@@ -6,6 +6,7 @@ ACENIC_ID=${1:-0}
 ACENIC_PORT=${2:-104}
 IMG_DOMAIN=${3:-local}
 LIBRESWAN_VERSION=${4:-v3.27}
+LIBRESWAN_TEST_DIR=${5:-/}
 
 docker volume rm $(docker volume ls -qf dangling=true)
 #docker network rm $(docker network ls | grep "bridge" | awk '/ / { print $1 }')
